@@ -1,0 +1,11 @@
+LICENSE
+README.md
+setup.py
+ObjectTracker/ObjectTracker.py
+ObjectTracker/__init__.py
+ObjectTracker/mask_drawer.py
+object_tracker.egg-info/PKG-INFO
+object_tracker.egg-info/SOURCES.txt
+object_tracker.egg-info/dependency_links.txt
+object_tracker.egg-info/requires.txt
+object_tracker.egg-info/top_level.txt

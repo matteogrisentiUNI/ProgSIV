@@ -1,0 +1,24 @@
+Metadata-Version: 2.2
+Name: object_tracker
+Version: 0.1.0
+Summary: Efficient Object Tracking Library using YOLO and Image Processing
+Home-page: https://github.com/matteogrisenti/ProgSIV
+Author: Adami Filippo & Grisenti Matteo
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+License-File: LICENSE
+Requires-Dist: ultralytics
+Requires-Dist: opencv-python
+Requires-Dist: numpy
+Requires-Dist: psutil
+Requires-Dist: matplotlib
+Requires-Dist: networkx
+Requires-Dist: tqdm
+Dynamic: author
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

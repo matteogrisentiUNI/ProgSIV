@@ -13,7 +13,13 @@ setup(
         "networkx",
         "tqdm"
     ],
-    author="Your Name",
+    author="Adami Filippo & Grisenti Matteo",
     description="Efficient Object Tracking Library using YOLO and Image Processing",
+    url='https://github.com/matteogrisenti/ProgSIV',
+    classifiers=[
+        'Programming Language :: Python :: 3',
+        'License :: OSI Approved :: MIT License',
+        'Operating System :: OS Independent',
+    ],
     python_requires=">=3.8",
 )
