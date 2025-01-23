@@ -3,6 +3,7 @@ README.md
 setup.py
 ObjectTracker/ObjectTracker.py
 ObjectTracker/__init__.py
+ObjectTracker/feature_extraction.py
 ObjectTracker/mask_drawer.py
 object_tracker.egg-info/PKG-INFO
 object_tracker.egg-info/SOURCES.txt
