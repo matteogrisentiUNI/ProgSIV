@@ -35,7 +35,6 @@ def extract_region_of_interest_with_mask(image_path, mask, box, output_folder):
 
     # Since in the nextr fram we will work with the box, extract from image and mask the box part
     x, y, w, h = box
-    print("\tExtracting detected region: x", x, "y", y, "w", w, "h", h)
     image = image[y:h, x:w]
     mask = mask[y:h, x:w]
 
@@ -77,7 +76,7 @@ def contourns_extraction(mask, output_folder=False):
 
     try:
         # Find contours in the mask
-        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         #NB: cv2.CHAIN_APPROX_SIMPLE allows not to store all the edges ( point of contours ), 
         #    only the edges that are at the ends of straight lines
 

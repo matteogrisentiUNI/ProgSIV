@@ -1,7 +1,7 @@
 import os
 import cv2 
-from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask
-
+import numpy as np
+from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask, contour_descriptors
 
 # Performs object detection of the target class on an image, 
 # Returns the boxes founded.
@@ -49,6 +49,17 @@ def main():
 
         # Extract the roi of the first box
         contours, region, color_histogram = extract_region_of_interest_with_mask(image_path, masks[0], boxes[0], output_folder)
+
+        # Loop through each contour and calculate descriptors
+        for idx, contour in enumerate(contours):
+            descriptors = contour_descriptors.calculate_contour_descriptors(contour)
+            print(f"Contour {idx + 1}:")
+            for key, value in descriptors.items():
+                if isinstance(value, list):  # If it's a list (e.g., curvature), print summary stats
+                    print(f"  {key}: [mean: {np.mean(value):.4f}, std: {np.std(value):.4f}]")
+                else:
+                    print(f"  {key}: {value}")
+
 
         print("Processing completed successfully.")
 
