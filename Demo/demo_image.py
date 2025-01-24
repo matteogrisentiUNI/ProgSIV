@@ -1,7 +1,6 @@
 import os
 import cv2 
-from ObjectTracker import ObjectTracker, draw_mask
-from first_feature_extraction import extract_region_of_interest_with_mask
+from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask
 
 
 # Performs object detection of the target class on an image, 
@@ -40,8 +39,8 @@ def process_image(image_path, target_class, output_folder):
 
 def main():
     # Paths
-    image_path = 'Demo/Images/Car2.jpg'  
-    output_folder = 'Demo/YOLO_Image/Car2'
+    image_path = 'Demo/Images/Car.jpg'  
+    output_folder = 'Demo/YOLO_Image/Car'
     os.makedirs(output_folder, exist_ok=True)
 
     try:
