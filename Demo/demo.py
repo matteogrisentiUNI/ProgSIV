@@ -11,7 +11,7 @@ def main():
 
     # Load the input video
     video_path = 'Demo/Video/Person.mov'
-    output_video_path = 'Demo/YOLO_Video/PersonYOLOMasked.mp4'
+    output_video_path = 'Demo/YOLO_Video/PersonYOLOMasked.mov'
 
     # Define and create the performance log directory
     performance_dir = 'Demo/YOLO_Performance'
@@ -25,6 +25,11 @@ def main():
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # get video orientation
+    orientation = int(cap.get(cv2.CAP_PROP_ORIENTATION))
+    # if the video is in portrait mode rotate it of 90 degrees
+    if orientation == 90:
+        width, height = height, width
 
     # Define video writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
