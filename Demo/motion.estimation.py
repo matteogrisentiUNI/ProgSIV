@@ -219,7 +219,6 @@ def test_indirect_compute_global_motion():
 
 
 
-
 # SPARSE OPTICAL FLOW PART
 # Performs object detection of the target class on an image, Returns the boxes founded.
 def process_image(image, target_class, output_folder=None):
@@ -248,7 +247,6 @@ def process_image(image, target_class, output_folder=None):
         cv2.imwrite(processed_image_path, masked_image)
 
     return masks,boxes
-
 def mask_motion_estimation(frame1, frame2, mask=None, output_folder=None):
 
     if mask is not None: 
@@ -278,6 +276,7 @@ def mask_motion_estimation(frame1, frame2, mask=None, output_folder=None):
     
     good_new = new_points[status == 1]
     good_old = points[status == 1]
+    avg_motion = np.mean(good_new - good_old, axis=0)
 
     if output_folder is not None:
         # Apply the mask to extract the region of interest
@@ -293,7 +292,7 @@ def mask_motion_estimation(frame1, frame2, mask=None, output_folder=None):
         frame1_points_path = os.path.join(output_folder, "frame1-points.jpg")
         cv2.imwrite(frame1_points_path, frame1_points)
     
-    return good_new, good_old
+    return good_new, good_old, avg_motion
 def test_mask_motion_estimation():
     # Carica il video
     cap = cv2.VideoCapture('Demo/Video/Car2.mp4')
@@ -318,7 +317,7 @@ def test_mask_motion_estimation():
     mask = masks[0].astype(np.uint8)
     box = boxes[0]
 
-    good_new, good_old = mask_motion_estimation(frame1, frame2, mask, output_folder)
+    good_new, good_old, avg_motion = mask_motion_estimation(frame1, frame2, mask, output_folder)
 
     motion_mask = np.zeros_like(frame1)
     frame1_motion = frame1.copy()
@@ -327,7 +326,18 @@ def test_mask_motion_estimation():
             x_old, y_old = old.ravel()
             motion_mask = cv2.line(motion_mask, (int(x_new), int(y_new)), (int(x_old), int(y_old)), (255, 0, 0), 2)
             frame1_motion = cv2.circle(frame1_motion, (int(x_new), int(y_new)), 3, (255, 0, 0), -1)
-            
+    
+    print('BOX', box)
+    x1, y1, x2, y2 = box                                    # Draw the original box and it centra point. 
+    cv2.rectangle(frame1_motion, (x1, y1), (x2, y2), (255, 0, 255), 2)  # Fucsia 
+
+    avg_dx, avg_dy = avg_motion                         # Draw the box and it centra point translated.
+    new_x1, new_y1, new_x2, new_y2 = int(x1 + avg_dx), int(y1 + avg_dy), int(x2 + avg_dx), int(y2 + avg_dy)
+    cv2.rectangle(frame1_motion, (new_x1, new_y1), (new_x2, new_y2), (0, 255, 255), 2)  # Yellow
+   
+    frame1_motion_path = os.path.join(output_folder, "frame1-motion.jpg")
+    cv2.imwrite(frame1_motion_path, frame1_motion)
+
     frame1_motion = cv2.add(frame1_motion, motion_mask)
     frame1_motion_path = os.path.join(output_folder, "frame1-motion.jpg")
     cv2.imwrite(frame1_motion_path, frame1_motion)
@@ -335,61 +345,86 @@ def test_mask_motion_estimation():
 
 
 # VIDEO SPARSE OPTICAL FLOW
+def motion_estimation(previus_frame, next_frame, previus_poi, **lk_params):
+
+    # Calculates sparse optical flow by Lucas-Kanade method
+    next_poi, status, error = cv2.calcOpticalFlowPyrLK(previus_frame, next_frame, previus_poi, None, **lk_params)
+
+    good_previus_poi = previus_poi[status == 1]     # Selects good poi of the previous frame
+    good_next_poi = next_poi[status == 1]           # Selects good poi of the sucessor frame
+    motion = np.mean(good_next_poi - good_previus_poi, axis=0)      # compute the avarage motion
+
+    return good_previus_poi, good_next_poi, motion
+
+
 def test_sparse_motion_estimantion_video():
-    # Parameters for Shi-Tomasi corner detection & Parameters for Lucas-Kanade optical flow
-    feature_params = dict(maxCorners = 300, qualityLevel = 0.2, minDistance = 2, blockSize = 7)
+    #Parameters for Lucas-Kanade optical flow
     lk_params = dict(winSize = (15,15), maxLevel = 2, criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
     
     cap = cv2.VideoCapture('Demo/Video/Car2.mp4')
-    color = (0, 255, 0)                             # Variable for color to draw optical flow track
+    output_folder = 'Demo/MotionEstimation/Car2'
     
-    ret, first_frame = cap.read()
-    prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+    # to elaborate the first and second frame we have to extract the poi  
+    ret, previus_frame = cap.read()            # read first frame 
+    ret, next_frame = cap.read()               # read second frame
 
     # Finds the mask of the object we want to tracj using YOLO
-    masks,boxes = process_image(first_frame, 'car')
+    masks,boxes = process_image(previus_frame, 'car')
     mask = masks[0].astype(np.uint8)
+    x1, y1, x2, y2 = boxes[0]
 
-    if len(mask.shape) == 2 and len(first_frame.shape) == 3:    # we have to add a dimension becouse the image has 3 dimension (width, hight, and color dimesnion)
-        mask = np.expand_dims(mask, axis=-1)                    # the mask has only two dimension width and height, so for compability we have to add a third dimension
-
-    if mask.shape[:2] != first_frame.shape[:2]:
-        print("\tResizing mask to match image dimensions.")
-        mask = cv2.resize(mask, (first_frame.shape[1], first_frame.shape[0] ), interpolation=cv2.INTER_NEAREST)
-
-    if mask.shape[:2] != first_frame.shape[:2]:              # Validate dimensions
-        raise ValueError("\tError: The mask dimensions still do not match the image dimensions.", mask.shape, image.shape)
+    good_next_poi, good_previus_poi, motion = mask_motion_estimation(previus_frame, next_frame, mask=mask, output_folder=output_folder)
+    dx, dy = motion
+    x1, y1, x2, y2 = x1+dx, y1+dy, x2+dx, y2+dy
     
-    # Shi-Tomasi corner detection inside the mask
-    prev = cv2.goodFeaturesToTrack(prev_gray, mask = mask, **feature_params)
-   
-    mask_motion = np.zeros_like(first_frame)     # Creates an image filled with zero intensities with the same dimensions as the frame - for later drawing purposes
+    mask_motion = np.zeros_like(previus_frame)     # Creates an image filled with zero intensitie
+    color_poi = (0, 255, 0)         # color point of interest
+    color_box = (255, 0, 255)       # color box
+    
+    # Draws the optical flow tracks
+    for i, (new, old) in enumerate(zip(good_next_poi, good_previus_poi)):
+        a, b = new.ravel()      # Returns a contiguous flattened array as (x, y) coordinates for new point
+        c, d = old.ravel()      # Returns a contiguous flattened array as (x, y) coordinates for old point
+
+        mask_motion = cv2.line(mask_motion, (int(a), int(b)), (int(c), int(d)), color_poi, 2)   # Draws line between new and old position with green color and 2 thickness
+        frame = cv2.circle(next_frame, (int(a), int(b)), 3, color_poi, -1)                      # Draws filled circle (thickness of -1) at new position with green color and radius of 3
+
+    frame = cv2.add(frame, mask_motion)    # Overlays the optical flow tracks on the original frame
+    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)) , color_box, 2)  # draw the box
+    
+    cv2.imshow("sparse optical flow", frame)
+    if cv2.waitKey(10) & 0xFF == ord('q'):
+        cap.release()
+        cv2.destroyAllWindows()
+        return 
+    
+    previus_frame = cv2.cvtColor(next_frame, cv2.COLOR_BGR2GRAY) 
+    previus_poi = good_next_poi.reshape(-1, 1, 2)
+
     
     while(cap.isOpened()):
         
-        ret, frame = cap.read()
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        ret, next_frame_color = cap.read()
+        next_frame = cv2.cvtColor(next_frame_color, cv2.COLOR_BGR2GRAY)
 
-        # Calculates sparse optical flow by Lucas-Kanade method
-        next, status, error = cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev, None, **lk_params)
-        
-        good_old = prev[status == 1]         # Selects good feature points for previous position
-        good_new = next[status == 1]         # Selects good feature points for next position
+        good_previus_poi, good_next_poi, motion = motion_estimation(previus_frame, next_frame, previus_poi, **lk_params)
+        dx, dy = motion
+        x1, y1, x2, y2 = x1+dx, y1+dy, x2+dx, y2+dy
 
-        # Draws the optical flow tracks
-        for i, (new, old) in enumerate(zip(good_new, good_old)):
+        for i, (new, old) in enumerate(zip(good_next_poi, good_previus_poi)):
             a, b = new.ravel()      # Returns a contiguous flattened array as (x, y) coordinates for new point
             c, d = old.ravel()      # Returns a contiguous flattened array as (x, y) coordinates for old point
+
+            mask_motion = cv2.line(mask_motion, (int(a), int(b)), (int(c), int(d)), color_poi, 2)   # Draws line between new and old position with green color and 2 thickness
+            frame = cv2.circle(next_frame_color, (int(a), int(b)), 3, color_poi, -1)                      # Draws filled circle (thickness of -1) at new position with green color and radius of 3
+
+        frame = cv2.add(frame, mask_motion)    # Overlays the optical flow tracks on the original frame
+        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)) , color_box, 2)  # draw the box
     
-            mask_motion = cv2.line(mask_motion, (int(a), int(b)), (int(c), int(d)), color, 2)   # Draws line between new and old position with green color and 2 thickness
-            frame = cv2.circle(frame, (int(a), int(b)), 3, color, -1)                           # Draws filled circle (thickness of -1) at new position with green color and radius of 3
+        previus_frame = next_frame
+        previus_poi = good_next_poi.reshape(-1, 1, 2)
         
-        output = cv2.add(frame, mask_motion)    # Overlays the optical flow tracks on the original frame
-       
-        prev_gray = gray.copy()                 # Updates previous frame
-        prev = good_new.reshape(-1, 1, 2)       # Updates previous good feature points
-        
-        cv2.imshow("sparse optical flow", output)
+        cv2.imshow("sparse optical flow", frame)
         if cv2.waitKey(10) & 0xFF == ord('q'):
             break
    
@@ -399,4 +434,4 @@ def test_sparse_motion_estimantion_video():
     
 
 if __name__ == "__main__":
-    test_indirect_compute_global_motion()
+    test_sparse_motion_estimantion_video()
