@@ -71,7 +71,7 @@ def adaptive_region_growing(image_channel, alpha_channel):
                 cluster_id += 1
 
     # Merge the smallest clusters until we have 10 clusters
-    num_clusters = 7
+    num_clusters = 2
     while len(cluster_sizes) > num_clusters:  # Stop when we have 10 or fewer clusters
         # Find the smallest cluster by size
         sorted_cluster_sizes = sorted(cluster_sizes.items(), key=lambda x: x[1])
@@ -170,11 +170,10 @@ def adaptive_region_growing(image_channel, alpha_channel):
     return clusters, len(cluster_sizes), final_image
 
 def preprocess_and_segment(image_path, 
-                            threshold=50, 
+                            best_channel = None, 
                             blur_ksize=5, 
                             canny_low=50, 
-                            canny_high=150, 
-                            alpha=0.9):
+                            canny_high=150):
     """
     Preprocess and segment a PNG image with Canny edge detection and adaptive region growing.
 
@@ -194,7 +193,11 @@ def preprocess_and_segment(image_path,
     if image is None:
         raise ValueError("Image not found or invalid path.")
     
-    # Extract BGR and Alpha channels
+    # if the image does not have an alpha channel, add one
+    if image.shape[2] < 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+
+    # Extract BGR and Alpha channels, if it doesn't have an alpha channel add an alpha channel where all the picture is opaque
     if image.shape[2] == 4:
         bgr_image = image[:, :, :3]
         # if image has an alpha channel, extract it, otherwise set it to 0
@@ -253,21 +256,23 @@ def preprocess_and_segment(image_path,
     cv2.waitKey(0)
     cv2.destroyAllWindows()'''
 
-    # Apply Canny edge detection for each channel
-    edges_r = cv2.Canny(thresholded_red, canny_low, canny_high)  # Red channel
-    edges_g = cv2.Canny(thresholded_green, canny_low, canny_high)  # Green channel
-    edges_b = cv2.Canny(thresholded_blue, canny_low, canny_high)  # Blue channel
-    edges_intensity = cv2.Canny(thresholded_intensity, canny_low, canny_high)  # Intensity channel
-    edges = [edges_r, edges_g, edges_b, edges_intensity]
-    best_density = np.sum(edges_r) / edges_r.size
-    for i, edgei in enumerate(edges):
-        density = np.sum(edgei) / edgei.size  # Calculate edge density as the ratio of edge pixels to total pixels
-        if density < best_density:  # Looking for the smallest density (less clutter)
-            best_density = density
-            best_edge_index = i  # Update index of the best edge
+    if best_channel is None:
+        # Apply Canny edge detection for each channel
+        edges_r = cv2.Canny(thresholded_red, canny_low, canny_high)  # Red channel
+        edges_g = cv2.Canny(thresholded_green, canny_low, canny_high)  # Green channel
+        edges_b = cv2.Canny(thresholded_blue, canny_low, canny_high)  # Blue channel
+        edges_intensity = cv2.Canny(thresholded_intensity, canny_low, canny_high)  # Intensity channel
+        edges = [edges_r, edges_g, edges_b, edges_intensity]
+        best_density = np.sum(edges_r) / edges_r.size
+        for i, edgei in enumerate(edges):
+            density = np.sum(edgei) / edgei.size  # Calculate edge density as the ratio of edge pixels to total pixels
+            if density < best_density:  # Looking for the smallest density (less clutter)
+                best_density = density
+                best_edge_index = i  # Update index of the best edge
+        best_channel = best_edge_index
 
     # Get the best edge and best thresholded image based on density
-    best_thresholded = thresholded_channels[best_edge_index]
+    best_thresholded = thresholded_channels[best_channel]
     #print("Best edge index: ", best_edge_index)
 
     '''# Show the Canny edge detection results for each channel with cv2.imshow
@@ -277,10 +282,12 @@ def preprocess_and_segment(image_path,
     cv2.imshow("CIntensity Channel", edges_intensity)
     cv2.waitKey(0)
     cv2.destroyAllWindows()'''
+    best_thresholded = thresholded_channels[best_channel]
 
     # Perform region growing
     # Get the best thresholded channel image as np.ndarray
     best_thresholded = np.array(best_thresholded, dtype=np.uint8)
+    print("pre-processing completed")
     clusters, num_clusters, image = adaptive_region_growing(best_thresholded, alpha_channel)
     
-    return image, num_clusters, clusters
+    return image, num_clusters, clusters, best_channel

@@ -157,6 +157,46 @@ def histogram_extraction(image, mask, output_folder=False):
 
     return color_histogram
 
+def detect_solitary_peaks(color_histogram):
+    peaks = []
+
+    # divide the histogram into the 3 channels
+    b_hist = color_histogram["blue"]
+    g_hist = color_histogram["green"]
+    r_hist = color_histogram["red"]
+    
+    peaks_array = []
+    peak = -1
+    color = 0
+    distance = 0 
+    # starting from 0 to 256
+    for i in range(255):
+        # create a tuple with the three colors
+        colors = ((b_hist[i], 0), (g_hist[i], 1), (r_hist[i],2))
+        # sort by the first element of the tuple
+        colors = sorted(colors, key=lambda x: x[0])
+        # get the element with the highest first value
+        max_value = colors[-1][0]
+        max_color = colors[-1][1]
+        if max_color==color:
+            if max_value > 2 * colors[1][0]:
+                distance += 1
+                if max_value > peak: 
+                    peak = max_value
+                else:
+                    if distance >30 and peak > 0.009:
+                        peaks_array.append([peak, color, i-1])
+                        peak = 0
+                        distance = 0                   
+        else: 
+            color = max_color
+            peak = 0
+
+    print(peaks_array)
+
+    return peaks_array
+
+
 #Extracts the box regions of the image where objects were detected
 def extract_region_of_interest(image_path, box, output_folder):
 

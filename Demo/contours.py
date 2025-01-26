@@ -1,7 +1,7 @@
 import os
 import cv2 
 import numpy as np
-from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask, contour_descriptors
+from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask, contour_descriptors, mask_refinement, feature_extraction
 
 # Performs object detection of the target class on an image, 
 # Returns the boxes founded.
@@ -45,10 +45,10 @@ def main():
 
     try:
         # Call the function to process the image and extract the box of roi
-        masks,boxes = process_image(image_path, 'person', output_folder)
+        mask,boxes = process_image(image_path, 'person', output_folder)
 
-        # Extract the roi of the first box
-        contours, region, color_histogram = extract_region_of_interest_with_mask(image_path, masks[0], boxes[0], output_folder)
+        '''# Extract the roi of the first box
+        contours, region, color_histogram = extract_region_of_interest_with_mask(image_path, mask[0], boxes[0], output_folder)
 
         # Loop through each contour and calculate descriptors
         for idx, contour in enumerate(contours):
@@ -61,12 +61,50 @@ def main():
                     print(f"  {key}: {value}")
 
 
-        print("Processing completed successfully.")
+        print("Processing completed successfully.")'''
+
+        # Load an image and its corresponding mask
+        image = cv2.imread(image_path)  # Input image (BGR format)
+
+        # Refine the mask
+        refined_mask = mask_refinement.refine_mask(image, mask[0])
+
+        '''# make the original mask into a 3 channel image, where the region inside the mask is bright red
+        mask_image = cv2.cvtColor(mask[0], cv2.COLOR_GRAY2BGR)
+        mask_image = mask_image.astype(np.float32) / 255.0
+        mask_image = np.where(mask_image > 0, [0, 0, 255], [0, 0, 0]).astype(np.uint8)
+
+        # make the refined mask into a 3 channel image, where the region inside the mask is bright blue
+        refined_mask_image = cv2.cvtColor(refined_mask, cv2.COLOR_GRAY2BGR)
+        refined_mask_image = refined_mask_image.astype(np.float32) / 255.0
+        refined_mask_image = np.where(refined_mask_image > 0, [255, 0, 0], [0, 0, 0]).astype(np.uint8)
+
+        # resize the original mask, the refined mask and the image to the same size
+        mask_image = cv2.resize(mask_image, (image.shape[1], image.shape[0]))
+        refined_mask_image = cv2.resize(refined_mask_image, (image.shape[1], image.shape[0]))
+
+        # draw the original mask and the refined mask over the original image as translucent masks
+        combined_image = cv2.addWeighted(image, 0.5, mask_image, 0.5, 0)
+        combined_image = cv2.addWeighted(image, 0.5, refined_mask_image, 0.5, 0)
+
+        # Display the combined image
+        cv2.imshow("Mask Refinement", combined_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+        # create a png image with the original image keeping only the points inside the refined mask
+        final_image = cv2.bitwise_and(image, image, mask=refined_mask)
+        cv2.imwrite(os.path.join(output_folder, "final_image.png"), final_image)'''
+
+        # analyze ROI histograms
+        histogram = feature_extraction.histogram_extraction(image, refined_mask)
+
+        peaks = feature_extraction.detect_solitary_peaks(histogram)
+        #print(f"Peaks: {peaks}")
+
 
     except Exception as e:
         print(f"Error during processing: {e}")
-
-
 
 if __name__ == "__main__":
     main()
