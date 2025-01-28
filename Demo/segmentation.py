@@ -13,7 +13,7 @@ from ObjectTracker import region_extraction
     print(f"Number of clusters detected: {num_clusters}")'''
 
 if __name__ == "__main__":
-    image_path = "Demo/YOLO_Image/person/4_ROI.png"  # Replace with your PNG image path
+    image_path = "Demo/YOLO_Image/person/1_Box.jpg"  # Replace with your PNG image path
     output_path = "Demo/YOLO_Image/person/6_segmented.png"   # Path to save the processed image
     try:
         # Process the image

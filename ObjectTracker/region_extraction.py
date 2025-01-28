@@ -71,7 +71,7 @@ def adaptive_region_growing(image_channel, alpha_channel):
                 cluster_id += 1
 
     # Merge the smallest clusters until we have 10 clusters
-    num_clusters = 2
+    num_clusters = 14
     while len(cluster_sizes) > num_clusters:  # Stop when we have 10 or fewer clusters
         # Find the smallest cluster by size
         sorted_cluster_sizes = sorted(cluster_sizes.items(), key=lambda x: x[1])
@@ -151,10 +151,10 @@ def adaptive_region_growing(image_channel, alpha_channel):
         # Create a mask for the current cluster
         cluster_mask = clusters == cluster_id
 
-        # Assign a random color for the cluster
-        cluster_color = [random.randint(0, 255) for _ in range(3)]
+        # Assign each cluster it's average color
+
         
-        # Set the RGB channels to the random color
+        # Set the RGB channels to the custom color
         final_image[cluster_mask, 0] = cluster_color[0]  # Red
         final_image[cluster_mask, 1] = cluster_color[1]  # Green
         final_image[cluster_mask, 2] = cluster_color[2]  # Blue
@@ -171,7 +171,7 @@ def adaptive_region_growing(image_channel, alpha_channel):
 
 def preprocess_and_segment(image_path, 
                             best_channel = None, 
-                            blur_ksize=5, 
+                            blur_ksize=7, 
                             canny_low=50, 
                             canny_high=150):
     """
@@ -188,66 +188,19 @@ def preprocess_and_segment(image_path,
     Returns:
         np.ndarray: Processed image with translucent masks over regions and no background.
     """
-    # Load the image with alpha channel
-    image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if image is None:
-        raise ValueError("Image not found or invalid path.")
-    
-    # if the image does not have an alpha channel, add one
-    if image.shape[2] < 4:
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+    # Load the image without alpha channel
+    image = cv2.imread(image_path, cv2.IMREAD_COLOR_BGR)
 
-    # Extract BGR and Alpha channels, if it doesn't have an alpha channel add an alpha channel where all the picture is opaque
-    if image.shape[2] == 4:
-        bgr_image = image[:, :, :3]
-        # if image has an alpha channel, extract it, otherwise set it to 0
-        alpha_channel = image[:, :, 3] if image.shape[2] == 4 else np.zeros_like(image[:, :, 0])
-    else:
-        raise ValueError("Image does not have an alpha channel.")
-    
-    # Create a mask for non-transparent regions
-    non_transparent_mask = cv2.threshold(alpha_channel, 0, 255, cv2.THRESH_BINARY)[1]
-    
-    # Use the mask to focus only on the non-transparent area
-    masked_image = cv2.bitwise_and(bgr_image, bgr_image, mask=non_transparent_mask)
-
+# Preprocess:
     # Apply histogram equalization on the intensity (grayscale) channel
-    gray_equalized = cv2.equalizeHist(masked_image[:, :, 2])
-    masked_image[:, :, 2] = gray_equalized
-
-    '''# Show the preprocessed image with cv2.imshow
-    cv2.imshow("Preprocessed Image", gray_equalized)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-    
-    # Preprocess: Apply Gaussian Blur
-    blurred = cv2.GaussianBlur(masked_image, (blur_ksize, blur_ksize), 0)
-
+    gray_equalized = cv2.equalizeHist(image[:, :, 2])
+    image[:, :, 2] = gray_equalized 
     # Increase contrast
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    blurred[:, :, 2] = clahe.apply(blurred[:, :, 2])
-
-    # Extract the blue, green and red channels and intensity channel as separate images, create an image with all the cannels to 0 exept the current color channel
-    blue_channel = blurred[:, :, 0]
-    green_channel = blurred[:, :, 1]
-    red_channel = blurred[:, :, 2]
-    gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
-
-    '''# Show the preprocessed images of the channels with cv2.imshow
-    cv2.imshow("Blue Channel", blue_channel)
-    cv2.imshow("Green Channel", green_channel)
-    cv2.imshow("Red Channel", red_channel)
-    cv2.imshow("Intensity Channel", gray)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-
-    # Apply custom thresholding to each channel
-    thresholded_red = apply_custom_threshold(red_channel)
-    thresholded_green = apply_custom_threshold(green_channel)
-    thresholded_blue = apply_custom_threshold(blue_channel)
-    thresholded_intensity = apply_custom_threshold(gray)
-    thresholded_channels = [thresholded_red, thresholded_green, thresholded_blue, thresholded_intensity]
-
+    image[:, :, 2] = clahe.apply(image[:, :, 2])
+    #Apply Gaussian Blur
+    blurred = cv2.GaussianBlur(image, (blur_ksize, blur_ksize), 0)
+    
     '''# Show the thresholded images of the channels with cv2.imshow
     cv2.imshow("TBlue Channel", thresholded_blue)
     cv2.imshow("TGreen Channel", thresholded_green)
@@ -255,8 +208,19 @@ def preprocess_and_segment(image_path,
     cv2.imshow("TIntensity Channel", thresholded_intensity)
     cv2.waitKey(0)
     cv2.destroyAllWindows()'''
-
+    best_thresholded = None
     if best_channel is None:
+        # Extract the blue, green and red channels and intensity channel as separate images, create an image with all the cannels to 0 exept the current color channel
+        blue_channel = blurred[:, :, 0]
+        green_channel = blurred[:, :, 1]
+        red_channel = blurred[:, :, 2]
+        gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
+        # Apply custom thresholding to each channel
+        thresholded_red = apply_custom_threshold(red_channel)
+        thresholded_green = apply_custom_threshold(green_channel)
+        thresholded_blue = apply_custom_threshold(blue_channel)
+        thresholded_intensity = apply_custom_threshold(gray)
+        thresholded_channels = [thresholded_red, thresholded_green, thresholded_blue, thresholded_intensity]
         # Apply Canny edge detection for each channel
         edges_r = cv2.Canny(thresholded_red, canny_low, canny_high)  # Red channel
         edges_g = cv2.Canny(thresholded_green, canny_low, canny_high)  # Green channel
@@ -270,24 +234,19 @@ def preprocess_and_segment(image_path,
                 best_density = density
                 best_edge_index = i  # Update index of the best edge
         best_channel = best_edge_index
-
-    # Get the best edge and best thresholded image based on density
-    best_thresholded = thresholded_channels[best_channel]
-    #print("Best edge index: ", best_edge_index)
-
-    '''# Show the Canny edge detection results for each channel with cv2.imshow
-    cv2.imshow("CRed Channel", edges_r)
-    cv2.imshow("CGreen Channel", edges_g)
-    cv2.imshow("CBlue Channel", edges_b)
-    cv2.imshow("CIntensity Channel", edges_intensity)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-    best_thresholded = thresholded_channels[best_channel]
+        # Get the best edge and best thresholded image based on density
+        best_thresholded = thresholded_channels[best_channel]
+        #print("Best edge index: ", best_edge_index)
+    else: 
+        if best_channel < 4:
+            best_thresholded = apply_custom_threshold(blurred[:, :, best_channel])
+        elif best_channel == 4:
+            best_thresholded = apply_custom_threshold(cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY))
+    print("Using best channel:", best_channel)
 
     # Perform region growing
-    # Get the best thresholded channel image as np.ndarray
     best_thresholded = np.array(best_thresholded, dtype=np.uint8)
     print("pre-processing completed")
-    clusters, num_clusters, image = adaptive_region_growing(best_thresholded, alpha_channel)
+    clusters, num_clusters, image = adaptive_region_growing(best_thresholded)
     
     return image, num_clusters, clusters, best_channel

@@ -1,6 +1,61 @@
 import cv2
 import numpy as np
-import math
+
+def get_major_contours(image, min_contour_area=79, closing_kernel_size=(5, 5)):
+    """
+    Detect and return the major contours in the input image, forcing closure on almost-closed contours.
+
+    Args:
+        image (np.ndarray): Input image (grayscale or BGR).
+        min_contour_area (int): Minimum area to consider a contour as "major".
+        closing_kernel_size (tuple): Kernel size for morphological closing.
+
+    Returns:
+        list: A list of major contours.
+    """
+    # Convert the image to grayscale if it's in color
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        print("Converted image to grayscale.")
+    else:
+        gray = image
+        print("Image is already grayscale.")
+
+    brightness = max(100-np.mean(gray), 0)
+    # if the brighness is negative, make it 0
+
+    print("Brightness adj", brightness)
+
+    # Apply Gaussian Blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    print("Applied Gaussian Blur.")
+
+    # Increase contrast
+    blurred = cv2.addWeighted(blurred, 1.08, np.zeros_like(blurred), 0, brightness)
+    print("Increased contrast.")
+
+    # Perform edge detection using Canny
+    edges = cv2.Canny(blurred, 50, 150)
+    print("Performed Canny edge detection.")
+
+    # Morphological closing to force contour closure
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, closing_kernel_size)
+    closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    dilation_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))  # Adjust kernel size for thickness
+    thicker_edges = cv2.dilate(closed_edges, dilation_kernel, iterations=1)
+    final_edges = thicker_edges #cv2.GaussianBlur(thicker_edges, (5, 5), 0)
+    print("Applied morphological closing to connect gaps in edges.")
+
+    # Find contours
+    contours, _ = cv2.findContours(final_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    print(f"Found {len(contours)} contours in the image.")
+
+    # Filter major contours by area
+    major_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
+    print(f"Filtered {len(major_contours)} major contours (area > {min_contour_area}).")
+
+    return major_contours, final_edges  # Returning the modified edge image for debugging
+
 
 def calculate_contour_descriptors(contour):
     """
