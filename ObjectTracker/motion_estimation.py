@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import os
 from .ObjectTracker import ObjectTracker
-from .mask_drawer import draw_mask
 
 # Combien more images in an unique collage
 def stack_images(scale, img_array, rows, cols):
@@ -371,10 +370,9 @@ def mask_motion_estimation(previus_frame, next_frame, mask=None, output_folder=N
     tx, ty = motion
     T = np.array([[1, 0, tx],[0, 1, ty],[0, 0, 1]], dtype=np.float64)
 
-    # Combina il moto globale e locale
+    # Combine global motion with local
     if Hg.shape == (3, 3) and T.shape == (3, 3):
-        # Matrix multiplication using numpy
-        Hgl = np.dot(Hg_inv, T)  # Or equivalently H @ Hl in Python (for newer versions of Python)
+        Hgl = np.dot(Hg_inv, T)  
     else:
         raise ValueError("Both H and Hl must be 3x3 homography matrices.")
     
@@ -417,10 +415,9 @@ def motion_estimation(previus_frame, next_frame, previus_poi):
     tx, ty = motion
     T = np.array([[1, 0, tx],[0, 1, ty],[0, 0, 1]], dtype=np.float64)
 
-    # Combina il moto globale e locale
+    # Cobine global motion with local motion
     if Hg.shape == (3, 3) and T.shape == (3, 3):
-        # Matrix multiplication using numpy
-        Hgl = np.dot(Hg_inv, T)  # Or equivalently H @ Hl in Python (for newer versions of Python)
+        Hgl = np.dot(Hg_inv, T)  
     else:
         raise ValueError("Both H and Hl must be 3x3 homography matrices.")
     

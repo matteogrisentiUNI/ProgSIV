@@ -32,8 +32,8 @@ def process_image(image, target_class, output_folder=None):
 
 def test_motion_estimantion_video():
     
-    cap = cv2.VideoCapture('Demo/Video/Car3.mp4')
-    output_folder = 'Demo/MotionEstimation/Car3'
+    cap = cv2.VideoCapture('Demo/Video/Ship.mp4')
+    output_folder = 'Demo/MotionEstimation/Ship'
     os.makedirs(output_folder, exist_ok=True)
     
     # to elaborate the first and second frame we have to extract the poi  
@@ -41,7 +41,7 @@ def test_motion_estimantion_video():
     ret, next_frame = cap.read()               # read second frame
 
     # Finds the mask of the object we want to tracj using YOLO
-    masks,boxes = process_image(previus_frame, 'car', output_folder=output_folder)
+    masks,boxes = process_image(previus_frame, 'boat', output_folder=output_folder)
     mask = masks[0].astype(np.uint8)
     box = boxes[0]
     box = box.astype(np.float32)
@@ -76,6 +76,9 @@ def test_motion_estimantion_video():
     while(cap.isOpened()):
         
         ret, next_frame_color = cap.read()
+        if not ret:  
+            print("Video Ended")
+            break  
         next_frame = cv2.cvtColor(next_frame_color, cv2.COLOR_BGR2GRAY)
 
         good_previus_poi, good_next_poi, Hgl = motion_estimation(previus_frame, next_frame, previus_poi)
