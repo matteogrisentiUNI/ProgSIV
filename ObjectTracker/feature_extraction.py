@@ -145,7 +145,7 @@ def histogram_extraction(image, mask, output_folder=False):
             plt.plot(color_histogram["green"], color="green", label="Green")
             plt.plot(color_histogram["red"], color="red", label="Red")
             plt.legend()
-            histogram_path = os.path.join(output_folder, "5.2 Color_Histogram.png")
+            histogram_path = os.path.join(output_folder, "5_Color_Histogram.png")
             plt.savefig(histogram_path)
             plt.close()
 

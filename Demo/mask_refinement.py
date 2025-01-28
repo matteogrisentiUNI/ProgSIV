@@ -46,30 +46,13 @@ def main():
     try:
         # Call the function to process the image and extract the box of roi
         mask,boxes = process_image(image_path, 'person', output_folder)
-
-        '''# Extract the roi of the first box
-        contours, region, color_histogram = extract_region_of_interest_with_mask(image_path, mask[0], boxes[0], output_folder)
-
-        # Loop through each contour and calculate descriptors
-        for idx, contour in enumerate(contours):
-            descriptors = contour_descriptors.calculate_contour_descriptors(contour)
-            print(f"Contour {idx + 1}:")
-            for key, value in descriptors.items():
-                if isinstance(value, list):  # If it's a list (e.g., curvature), print summary stats
-                    print(f"  {key}: [mean: {np.mean(value):.4f}, std: {np.std(value):.4f}]")
-                else:
-                    print(f"  {key}: {value}")
-
-
-        print("Processing completed successfully.")'''
-
         # Load an image and its corresponding mask
         image = cv2.imread(image_path)  # Input image (BGR format)
 
         # Refine the mask
         refined_mask = mask_refinement.refine_mask(image, mask[0])
 
-        '''# make the original mask into a 3 channel image, where the region inside the mask is bright red
+        # make the original mask into a 3 channel image, where the region inside the mask is bright red
         mask_image = cv2.cvtColor(mask[0], cv2.COLOR_GRAY2BGR)
         mask_image = mask_image.astype(np.float32) / 255.0
         mask_image = np.where(mask_image > 0, [0, 0, 255], [0, 0, 0]).astype(np.uint8)
@@ -94,14 +77,7 @@ def main():
 
         # create a png image with the original image keeping only the points inside the refined mask
         final_image = cv2.bitwise_and(image, image, mask=refined_mask)
-        cv2.imwrite(os.path.join(output_folder, "final_image.png"), final_image)'''
-
-        # analyze ROI histograms
-        histogram = feature_extraction.histogram_extraction(image, refined_mask)
-
-        peaks = feature_extraction.detect_solitary_peaks(histogram)
-        #print(f"Peaks: {peaks}")
-
+        cv2.imwrite(os.path.join(output_folder, "7_refined_mask_image.png"), final_image)
 
     except Exception as e:
         print(f"Error during processing: {e}")

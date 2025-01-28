@@ -14,7 +14,7 @@ from ObjectTracker import region_extraction
 
 if __name__ == "__main__":
     image_path = "Demo/YOLO_Image/person/4_ROI.png"  # Replace with your PNG image path
-    output_path = "Demo/segmented_image.png"   # Path to save the processed image
+    output_path = "Demo/YOLO_Image/person/6_segmented.png"   # Path to save the processed image
     try:
         # Process the image
         output_image, num_regions, clusters, best_channel = region_extraction.preprocess_and_segment(image_path,1)
