@@ -6,6 +6,7 @@ ObjectTracker/__init__.py
 ObjectTracker/contour_descriptors.py
 ObjectTracker/feature_extraction.py
 ObjectTracker/mask_drawer.py
+ObjectTracker/motion_estimation.py
 ObjectTracker/region_extraction.py
 object_tracker.egg-info/PKG-INFO
 object_tracker.egg-info/SOURCES.txt
