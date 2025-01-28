@@ -1,11 +1,24 @@
 import cv2
 import numpy as np
-import math
 
 def calculate_contour_descriptors(contour):
     """
     Calculate shape descriptors and curvature/edge features for a given contour.
+    
+    Args:
+        contour (ndarray): Contour from OpenCV's findContours (Nx1x2 array of points).
+    
+    Returns:
+        dict: Dictionary containing calculated descriptors:
+              - Centroid
+              - Compactness
+              - Eccentricity
+              - Convexity
+              - Contour Curvature
+              - Number of Corners/Edges
+              - Number of Curves (convexity changes)
     """
+    # Ensure the contour is in the correct format
     if len(contour.shape) == 3:
         contour = contour[:, 0, :]  # Flatten to Nx2
 
@@ -24,11 +37,9 @@ def calculate_contour_descriptors(contour):
     # Eccentricity
     if len(contour) >= 5:  # Minimum 5 points needed to fit an ellipse
         _, (major_axis, minor_axis), _ = cv2.fitEllipse(contour)
-        if major_axis < minor_axis:
-            major_axis, minor_axis = minor_axis, major_axis
         eccentricity = np.sqrt(1 - (minor_axis ** 2 / major_axis ** 2))
     else:
-        eccentricity = 0
+        eccentricity = 0  # Cannot calculate if there are fewer than 5 points
 
     # Convexity
     hull = cv2.convexHull(contour)
@@ -37,12 +48,13 @@ def calculate_contour_descriptors(contour):
 
     # Contour Curvature
     curvature = []
-    k = 3
+    k = 3  # Use a small window of 3 points for curvature calculation
     for i in range(len(contour)):
         prev_point = contour[i - k]
         curr_point = contour[i]
         next_point = contour[(i + k) % len(contour)]
-
+        
+        # Triangle area-based curvature calculation
         area = 0.5 * np.abs(
             prev_point[0] * (curr_point[1] - next_point[1]) +
             curr_point[0] * (next_point[1] - prev_point[1]) +
@@ -51,38 +63,18 @@ def calculate_contour_descriptors(contour):
         edge1 = np.linalg.norm(prev_point - curr_point)
         edge2 = np.linalg.norm(curr_point - next_point)
         edge3 = np.linalg.norm(next_point - prev_point)
-        curvature_value = (4 * area) / (edge1 * edge2 * edge3 + 1e-10)
+        curvature_value = (4 * area) / (edge1 * edge2 * edge3 + 1e-10)  # Avoid division by zero
         curvature.append(curvature_value)
 
-    # Simplify the contour as a polygon, approximating corners as straight lines (epsilon=0.02*perimeter)
-    epsilon = 0.005 * perimeter
-    approx = cv2.approxPolyDP(contour, epsilon, True)
-    num_corners = len(approx)
+    # Number of Corners/Edges
+    corners = cv2.goodFeaturesToTrack(np.float32(contour), maxCorners=50, qualityLevel=0.01, minDistance=10)
+    num_corners = len(corners) if corners is not None else 0
 
-    # Get the number of curves (starting from a corner, count how many times does the curve change direction)
-    num_curves = 0
-    prev_angle = None
-    for i in range(len(approx)):
-        prev_point = approx[i - 1][0]
-        curr_point = approx[i][0]
-        next_point = approx[(i + 1) % len(approx)][0]
+    # Number of Curves (changes in convexity)
+    is_convex = [cv2.pointPolygonTest(hull, tuple(pt), False) >= 0 for pt in contour]
+    num_curves = sum(is_convex[i] != is_convex[i - 1] for i in range(1, len(is_convex)))
 
-        # Compute the angle between the edges
-        edge1 = prev_point - curr_point
-        edge2 = next_point - curr_point
-        angle = np.arccos(np.dot(edge1, edge2) / (np.linalg.norm(edge1) * np.linalg.norm(edge2) + 1e-10))
-        if prev_angle is not None:
-            if angle > prev_angle:
-                num_curves += 1
-        prev_angle = angle
-
-    # draw and show the white contour over black background
-    '''img = np.zeros((512, 512, 3), np.uint8)
-    cv2.drawContours(img, [approx], -1, (255, 255, 255), 3)
-    cv2.imshow('image', img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-
+    # Return descriptors
     return {
         "Centroid": centroid,
         "Compactness": compactness,

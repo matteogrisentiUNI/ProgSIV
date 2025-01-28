@@ -35,10 +35,10 @@ def extract_region_of_interest_with_mask(image_path, mask, box, output_folder):
 
     # Since in the nextr fram we will work with the box, extract from image and mask the box part
     x, y, w, h = box
-    image = image[y:h, x:w]
-    mask = mask[y:h, x:w]
+    image = image[y:y+h, x:x+w]
+    mask = mask[y:y+h, x:x+w]
 
-    box_path = os.path.join(output_folder, "1_Box.jpg")
+    box_path = os.path.join(output_folder, "1 Box.jpg")
     cv2.imwrite(box_path, image)
 
     # Ensure the mask is uint8 before saving
@@ -47,24 +47,20 @@ def extract_region_of_interest_with_mask(image_path, mask, box, output_folder):
     else:                                       # if it is already expresed trought integer
         mask = mask.astype(np.uint8)            # convert directly
     
-    mask_path = os.path.join(output_folder, "2_Region.jpg") 
+    mask_path = os.path.join(output_folder, "2 Region.jpg") 
     cv2.imwrite(mask_path, mask)
 
     # Find contours in the mask
     contours = contourns_extraction(mask, output_folder)
     
-    # Convert the image to BGRA (add alpha channel)
-    image_bgra = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+    # Apply the mask to extract the region of interest
+    roi = cv2.bitwise_and(image, image, mask=mask)
 
-    # Set the alpha channel using the mask
-    image_bgra[:, :, 3] = mask
-
-    # Save the ROI as a PNG with transparency
-    roi_path = os.path.join(output_folder, "4_ROI.png")
-    cv2.imwrite(roi_path, image_bgra)
+    roi_path = os.path.join(output_folder, "4 ROI.jpg")   
+    cv2.imwrite(roi_path, roi)
 
     #Calculate the color histogram of the ROI 
-    color_histogram = histogram_extraction(image_bgra, mask, output_folder)
+    color_histogram = histogram_extraction(roi, mask, output_folder)
     
     return contours, mask, color_histogram
 
@@ -76,7 +72,7 @@ def contourns_extraction(mask, output_folder=False):
 
     try:
         # Find contours in the mask
-        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         #NB: cv2.CHAIN_APPROX_SIMPLE allows not to store all the edges ( point of contours ), 
         #    only the edges that are at the ends of straight lines
 
@@ -84,7 +80,7 @@ def contourns_extraction(mask, output_folder=False):
         if output_folder:        
             margins_image = np.zeros_like(mask, dtype=np.uint8)
             cv2.drawContours(margins_image, contours, -1, (255), 1)  
-            margins_path = os.path.join(output_folder, "3_Contours.jpg")
+            margins_path = os.path.join(output_folder, "3.2 Contours.jpg")
             cv2.imwrite(margins_path, margins_image)
 
         print(log, "OK ")
