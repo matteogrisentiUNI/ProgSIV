@@ -7,15 +7,15 @@ from ObjectTracker import ObjectTracker, draw_mask
 
 def main():
     # Initialize Object Tracker for 'dog' class
-    tracker = ObjectTracker(target_class='person', conf_threshold=0.1)
+    tracker = ObjectTracker(target_class='boat', conf_threshold=0.1)
 
     # Load the input video
-    video_path = 'Demo/Video/Person.mov'
-    output_video_path = 'Demo/YOLO_Video/PersonYOLOMasked.mov'
+    video_path = 'Demo/Video/Ship.mp4'
+    output_video_path = 'Demo/YOLO_Video/ShipYOLOMasked.mp4'
 
     # Define and create the performance log directory
     performance_dir = 'Demo/YOLO_Performance'
-    performance_log_path = os.path.join(performance_dir, 'PersonYOLOPerformance.txt')
+    performance_log_path = os.path.join(performance_dir, 'ShipYOLOPerformance.txt')
     os.makedirs(performance_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -26,10 +26,10 @@ def main():
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     # get video orientation
-    orientation = int(cap.get(cv2.CAP_PROP_ORIENTATION))
+    # orientation = int(cap.get(cv2.CAP_PROP_ORIENTATION))
     # if the video is in portrait mode rotate it of 90 degrees
-    if orientation == 90:
-        width, height = height, width
+    # if orientation == 90:
+    #    width, height = height, width
 
     # Define video writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
