@@ -46,27 +46,8 @@ def calculate_mean_run(file_path):
         file.write(f"Average time per frame: {mean_time_per_frame:.4f} seconds\n")
         file.write(f"Total processing time: {mean_processing_time:.2f} seconds\n")
 
-# Example dynamic threshold adjustment based on object size (bounding box area)
-def dynamic_speed_threshold(object_bbox, frame_resolution):
-    object_area = (object_bbox[2] - object_bbox[0]) * (object_bbox[3] - object_bbox[1])  # width * height
-    frame_area = frame_resolution[0] * frame_resolution[1]  # width * height of the frame
 
-    # Assume that a smaller object might require a higher speed threshold (because small movements are significant)
-    # And a larger object could need a lower threshold.
-    # Scale the threshold based on the ratio of object area to frame area.
-    speed_threshold = 5  # Default threshold
-
-    size_ratio = object_area / frame_area
-
-    # Increase threshold for smaller objects, decrease for larger ones.
-    if size_ratio < 0.01:  # For very small objects
-        speed_threshold = 10
-    elif size_ratio > 0.1:  # For large objects
-        speed_threshold = 3
-
-    return speed_threshold
-
-def test_H_motion_estimantion_video(video_path, object_detected,  output_folder=None, saveVideo=False, showVideo = False):
+def test_motion_estimantion_video(video_path, object_detected,  output_folder=None, saveVideo=False, showVideo = False):
     
     cap = cv2.VideoCapture(video_path)
     os.makedirs(output_folder, exist_ok=True)
@@ -122,6 +103,7 @@ def test_H_motion_estimantion_video(video_path, object_detected,  output_folder=
     box = box.reshape(-1, 1, 2)
     box = cv2.transform(box, A).reshape(-1, 4)
     x1, y1, x2, y2 = box[0]
+    
 
     color_poi = (0, 255, 0)         # color point of interest
     color_box = (255, 0, 255)       # color box
@@ -254,11 +236,11 @@ def k_test(video_path, object_detected,  output_folder):
         os.remove(performance_log_path)
 
     print('Iteration 1')
-    test_H_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=False)
+    test_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=False)
 
     for i in range(9): 
         print('Iteration ', i+2)
-        test_H_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=False, showVideo=False)
+        test_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=False, showVideo=False)
 
     calculate_mean_run(performance_log_path)
 def calculate_mean_run(file_path):
@@ -316,7 +298,7 @@ def process_videos_in_folder(folder_path, object_detected, output_base_folder, s
 
         print(f"Elaboration of Video: {video_name}")
 
-        test_H_motion_estimantion_video(
+        test_motion_estimantion_video(
             video_path, object_detected, output_folder, 
             saveVideo=saveVideo, showVideo=showVideo
         )
@@ -324,10 +306,10 @@ def process_videos_in_folder(folder_path, object_detected, output_base_folder, s
 
 if __name__ == "__main__":
 
-    video_path = 'test/CarVideo'
-    output_folder = os.path.join('test/MotionEstimations')
-    object_detected = 'car'
+    video_path = 'Demo/Video/Ship.mp4'
+    output_folder = os.path.join('test/MotionEstimation/Ship')
+    object_detected = 'boat'
 
-    #test_H_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
-    process_videos_in_folder(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
-    
+    test_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
+    # process_videos_in_folder(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
+    # k_test(video_path, object_detected, output_folder)

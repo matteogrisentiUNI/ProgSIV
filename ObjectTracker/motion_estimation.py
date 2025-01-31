@@ -67,7 +67,7 @@ def mask_motion_estimation(previus_frame, next_frame, mask=None, output_folder=N
         
 
     if A is None:
-        raise ValueError("Homography estimation failed.")
+        raise ValueError("motion estimation failed.")
 
     if output_folder is not None:
         # Apply the mask to extract the region of interest
