@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-def get_major_contours(image, min_contour_area=79, closing_kernel_size=(5, 5)):
+def get_major_contours(image, min_contour_area=150, closing_kernel_size=(5, 5)):
     """
     Detect and return the major contours in the input image, forcing closure on almost-closed contours.
 
@@ -22,8 +22,6 @@ def get_major_contours(image, min_contour_area=79, closing_kernel_size=(5, 5)):
         print("Image is already grayscale.")
 
     brightness = max(100-np.mean(gray), 0)
-    # if the brighness is negative, make it 0
-
     print("Brightness adj", brightness)
 
     # Apply Gaussian Blur to reduce noise
@@ -43,19 +41,18 @@ def get_major_contours(image, min_contour_area=79, closing_kernel_size=(5, 5)):
     closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     dilation_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))  # Adjust kernel size for thickness
     thicker_edges = cv2.dilate(closed_edges, dilation_kernel, iterations=1)
-    final_edges = thicker_edges #cv2.GaussianBlur(thicker_edges, (5, 5), 0)
+    found_edges = thicker_edges #cv2.GaussianBlur(thicker_edges, (5, 5), 0)
     print("Applied morphological closing to connect gaps in edges.")
 
     # Find contours
-    contours, _ = cv2.findContours(final_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(found_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     print(f"Found {len(contours)} contours in the image.")
 
     # Filter major contours by area
     major_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
     print(f"Filtered {len(major_contours)} major contours (area > {min_contour_area}).")
-
-    return major_contours, final_edges  # Returning the modified edge image for debugging
-
+    
+    return major_contours, found_edges  # Returning the modified edge image for debugging
 
 def calculate_contour_descriptors(contour):
     """

@@ -1,20 +1,47 @@
 import cv2
 import numpy as np
-import random
+import matplotlib.pyplot as plt
 
-def apply_custom_threshold(channel):
+def find_centroid(mask):
     """
-    Apply custom thresholding to each channel.
-    Values from 0 to 75 are set to 0, from 76 to 175 are set to 125, and from 176 to 255 are set to 255.
+    Finds the centroid inside a given mask.
+    
+    Args:
+        mask (numpy.ndarray): The binary mask (same size as the image).
+    
+    Returns:
+        entroid
     """
-    thresholded = np.zeros_like(channel)
-    thresholded[(channel >= 0) & (channel <= 50)] = 0
-    thresholded[(channel > 50) & (channel <= 130)] = 80
-    thresholded[(channel > 130) & (channel <= 200)] = 165
-    thresholded[(channel > 200) & (channel <= 255)] = 255
-    return thresholded
+    # Calculate the centroid
+    moments = cv2.moments(mask)
+    if moments["m00"] != 0:
+        cx = int(moments["m10"] / moments["m00"])
+        cy = int(moments["m01"] / moments["m00"])
+    else:
+        raise ValueError("The mask is empty or has no area.")
+    centroid = (cx, cy)
 
-def adaptive_region_growing(image_channel, alpha_channel):
+    # Check if the centroid is inside the mask
+    if mask[cy, cx] == 0:
+        centroidBackup = centroid
+        #find the nearest point inside the mask
+        while mask[cy, cx] == 0:
+            if cy > 0:
+                cy -= 1
+            elif cx > 0:
+                cx -= 1
+            else:
+                break
+        centroidBackup = (cx, cy)
+        # get the vector from the original centroid to the new centroid
+        vector = (cx - centroidBackup[0], cy - centroidBackup[1])
+        # move the centroid of 1. times the vector
+        centroid = (int(centroidBackup[0] + vector[0] * 1.5), int(centroidBackup[1] + vector[1] * 1.5)) 
+        # print(f"Centroid moved from {centroidBackup} to {centroid}")
+        
+    return centroid
+
+def adaptive_region_growing(image):
     """
     Perform adaptive region growing on a single-channel image with transparent background.
 
@@ -26,9 +53,6 @@ def adaptive_region_growing(image_channel, alpha_channel):
         np.ndarray: Clustered image with each region assigned a unique cluster ID.
         int: Number of clusters detected in the image.
     """
-    # Exclude transparent regions
-    non_transparent_mask = alpha_channel > 0
-    image_channel = np.where(non_transparent_mask, image_channel, 0)
 
     # Initialize variables
     rows, cols = image_channel.shape
@@ -169,84 +193,140 @@ def adaptive_region_growing(image_channel, alpha_channel):
 
     return clusters, len(cluster_sizes), final_image
 
-def preprocess_and_segment(image_path, 
-                            best_channel = None, 
-                            blur_ksize=7, 
-                            canny_low=50, 
-                            canny_high=150):
-    """
-    Preprocess and segment a PNG image with Canny edge detection and adaptive region growing.
 
+from collections import deque
+
+def histogram_based_region_growing(image, seed_point, threshold=97, connectivity=8):
+    """
+    Perform region growing based on histogram matching.
+    
     Parameters:
-        image_path (str): Path to the PNG image with a transparent background.
-        threshold (int): Intensity difference threshold for region growing (default: 50).
-        blur_ksize (int): Kernel size for Gaussian blur (default: 5).
-        canny_low (int): Lower threshold for Canny edge detection (default: 50).
-        canny_high (int): Upper threshold for Canny edge detection (default: 150).
-        alpha (float): Transparency factor for overlay masks (0 = transparent, 1 = opaque) (default: 0.5).
-
+    - image: Input image (grayscale or color).
+    - seed_point: (x, y) coordinates of the seed pixel.
+    - histogram: A dictionary of histograms for each color channel (keys: "blue", "green", "red") or a single histogram for grayscale images.
+    - threshold: A threshold for histogram similarity to consider a pixel part of the region.
+    - connectivity: 4 or 8 connectivity for neighborhood exploration.
+    
     Returns:
-        np.ndarray: Processed image with translucent masks over regions and no background.
+    - mask: A binary mask where the region of interest has been grown.
     """
-    # Load the image without alpha channel
-    image = cv2.imread(image_path, cv2.IMREAD_COLOR_BGR)
-
-# Preprocess:
-    # Apply histogram equalization on the intensity (grayscale) channel
-    gray_equalized = cv2.equalizeHist(image[:, :, 2])
-    image[:, :, 2] = gray_equalized 
-    # Increase contrast
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    image[:, :, 2] = clahe.apply(image[:, :, 2])
-    #Apply Gaussian Blur
-    blurred = cv2.GaussianBlur(image, (blur_ksize, blur_ksize), 0)
     
-    '''# Show the thresholded images of the channels with cv2.imshow
-    cv2.imshow("TBlue Channel", thresholded_blue)
-    cv2.imshow("TGreen Channel", thresholded_green)
-    cv2.imshow("TRed Channel", thresholded_red)
-    cv2.imshow("TIntensity Channel", thresholded_intensity)
+    height, width = image.shape[:2] # Get image dimensions
+    
+    mask = np.zeros((height, width), dtype=np.uint8) # Initialize the binary mask
+    print("Initialized mask with dimensions:", mask.shape)
+
+    clusters = [] # Initialize cluster list
+
+    # Function to get neighbors based on connectivity
+    def get_neighbors(y, x):
+        neighbors = []
+        if connectivity == 4:
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4-connected
+        elif connectivity == 8:
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]  # 8-connected
+        for dx, dy in directions:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < height and 0 <= nx < width:
+                neighbors.append((ny, nx))
+        return neighbors
+    
+    # Initialize the queue with the seed point (convert seed to (y, x) format)
+    seed_x, seed_y = seed_point  # Convert seed to (y, x)
+    inv_seed_point = seed_y, seed_x
+    print("x: ",seed_x, "y: ", seed_y)
+    queue = deque([(inv_seed_point)])  # Use (y, x) coordinates
+
+    print(queue)
+    mask[inv_seed_point] = 1  # Mark seed as part of the region
+    cluster_size = 0 # Cluster size
+
+    # Initialize a histogram for the seed point
+    b, g, r = image[inv_seed_point]
+    cluster_blue = b  # Initialize blue histogram
+    cluster_green = g  # Initialize green histogram
+    cluster_red = r  # Initialize red histogram
+
+    print(f"Seed point initialized at ({seed_y}, {seed_x}) with initial mask set.")
+
+    # Region growing
+    while queue:
+        y, x = queue.popleft()  # Pop (y, x) from the queue
+        #print(f"Processing pixel at ({y}, {x})")
+
+        # Get pixel value
+        pixel_value = image[y, x] if len(image.shape) == 2 else image[y, x, :]
+        #print(f"Pixel value: {pixel_value}")
+
+        # Check histogram similarity
+        b_value, g_value, r_value = pixel_value
+        blue_difference = int(b_value) - int(cluster_blue)
+        green_difference = int(g_value) - int(cluster_green)
+        red_difference = int(r_value) - int(cluster_red)
+        is_similar = abs(blue_difference) < threshold and abs(green_difference) < threshold and abs(red_difference) < threshold
+
+        if is_similar:
+            mask[y, x] = 1  # Mark as part of the region
+            cluster_size += 1  # Update cluster size
+            # Update cluster histogram
+            cluster_blue = int(cluster_blue + (blue_difference / cluster_size))
+            cluster_green = int(cluster_green + (green_difference / cluster_size))
+            cluster_red = int(cluster_red + (red_difference / cluster_size))
+            # Add neighbors to the queue if they are unvisited
+            for ny, nx in get_neighbors(y, x):
+                if mask[ny, nx] == 0:  # If not yet visited
+                    queue.append((ny, nx))
+                    mask[ny, nx] = 3  # Mark as "in queue"
+        else:
+            mask[y, x] = 2  # Mark as visited but NOT part of the region
+            # print(f"Pixel at ({x}, {y}) is NOT similar to histogram. Skipping.")
+            
+    # After the region growing is done, add the final cluster mask to the clusters list
+    clusters.append(mask)
+
+    # Create masks for different values
+    mask_0 = (mask == 0).astype(np.uint8)  # Pixels with value = 0
+    mask_1 = (mask == 1).astype(np.uint8)  # Pixels with value = 1
+    mask_2 = (mask == 2).astype(np.uint8)  # Pixels with value = 2
+    mask_3 = (mask == 3).astype(np.uint8)  # Pixels with value = 3
+
+    # Define colors for each mask (BGR format)
+    color_0 = (180, 105, 255)  # Pink for mask_0
+    color_1 = (255, 0, 0)      # Blue for mask_1
+    color_2 = (0, 255, 0)      # Green for mask_2
+    color_3 = (0, 0, 255)      # Red for mask_3
+
+    # Create color overlays for each mask
+    pink_mask = np.zeros_like(image, dtype=np.uint8)
+    pink_mask[:, :] = color_0
+    blue_mask = np.zeros_like(image, dtype=np.uint8)
+    blue_mask[:, :] = color_1
+    green_mask = np.zeros_like(image, dtype=np.uint8)
+    green_mask[:, :] = color_2
+    red_mask = np.zeros_like(image, dtype=np.uint8)
+    red_mask[:, :] = color_3
+
+    # Apply the individual masks to their respective colors
+    pink_overlay = cv2.bitwise_and(pink_mask, pink_mask, mask=mask_0)
+    blue_overlay = cv2.bitwise_and(blue_mask, blue_mask, mask=mask_1)
+    green_overlay = cv2.bitwise_and(green_mask, green_mask, mask=mask_2)
+    red_overlay = cv2.bitwise_and(red_mask, red_mask, mask=mask_3)
+
+    # Combine all overlays into one
+    combined_overlay = cv2.addWeighted(pink_overlay, 1, blue_overlay, 1, 0)
+    combined_overlay = cv2.addWeighted(combined_overlay, 1, green_overlay, 1, 0)
+    combined_overlay = cv2.addWeighted(combined_overlay, 1, red_overlay, 1, 0)
+
+    # Blend the combined overlay with the original image
+    alpha = 0.5  # Transparency factor
+    final_image = cv2.addWeighted(image, 1 - alpha, green_overlay, alpha, 0)
+
+    # Draw a red dot at the seed point location
+    cv2.circle(final_image, (seed_point), 5, (0, 0, 255), -1)  # Red color in BGR, radius 5
+
+    # Show the resulting image
+    cv2.imshow("Bounded Image with Colored Masks Overlay", final_image)
     cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-    best_thresholded = None
-    if best_channel is None:
-        # Extract the blue, green and red channels and intensity channel as separate images, create an image with all the cannels to 0 exept the current color channel
-        blue_channel = blurred[:, :, 0]
-        green_channel = blurred[:, :, 1]
-        red_channel = blurred[:, :, 2]
-        gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
-        # Apply custom thresholding to each channel
-        thresholded_red = apply_custom_threshold(red_channel)
-        thresholded_green = apply_custom_threshold(green_channel)
-        thresholded_blue = apply_custom_threshold(blue_channel)
-        thresholded_intensity = apply_custom_threshold(gray)
-        thresholded_channels = [thresholded_red, thresholded_green, thresholded_blue, thresholded_intensity]
-        # Apply Canny edge detection for each channel
-        edges_r = cv2.Canny(thresholded_red, canny_low, canny_high)  # Red channel
-        edges_g = cv2.Canny(thresholded_green, canny_low, canny_high)  # Green channel
-        edges_b = cv2.Canny(thresholded_blue, canny_low, canny_high)  # Blue channel
-        edges_intensity = cv2.Canny(thresholded_intensity, canny_low, canny_high)  # Intensity channel
-        edges = [edges_r, edges_g, edges_b, edges_intensity]
-        best_density = np.sum(edges_r) / edges_r.size
-        for i, edgei in enumerate(edges):
-            density = np.sum(edgei) / edgei.size  # Calculate edge density as the ratio of edge pixels to total pixels
-            if density < best_density:  # Looking for the smallest density (less clutter)
-                best_density = density
-                best_edge_index = i  # Update index of the best edge
-        best_channel = best_edge_index
-        # Get the best edge and best thresholded image based on density
-        best_thresholded = thresholded_channels[best_channel]
-        #print("Best edge index: ", best_edge_index)
-    else: 
-        if best_channel < 4:
-            best_thresholded = apply_custom_threshold(blurred[:, :, best_channel])
-        elif best_channel == 4:
-            best_thresholded = apply_custom_threshold(cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY))
-    print("Using best channel:", best_channel)
+    cv2.destroyAllWindows()
 
-    # Perform region growing
-    best_thresholded = np.array(best_thresholded, dtype=np.uint8)
-    print("pre-processing completed")
-    clusters, num_clusters, image = adaptive_region_growing(best_thresholded)
-    
-    return image, num_clusters, clusters, best_channel
+    return clusters

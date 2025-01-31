@@ -1,7 +1,7 @@
 import os
 import cv2 
 import numpy as np
-from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask, contour_descriptors, mask_refinement, feature_extraction
+from ObjectTracker import ObjectTracker, draw_mask, mask_refinement, region_extraction
 
 # Performs object detection of the target class on an image, 
 # Returns the boxes founded.
@@ -45,12 +45,14 @@ def main():
 
     try:
         # Call the function to process the image and extract the box of roi
-        mask,boxes = process_image(image_path, 'person', output_folder)
+        mask, boxes = process_image(image_path, 'person', output_folder)
         # Load an image and its corresponding mask
         image = cv2.imread(image_path)  # Input image (BGR format)
 
         # Refine the mask
         refined_mask = mask_refinement.refine_mask(image, mask[0])
+        # Call the function
+        centroid = region_extraction.find_centroid(refined_mask)
 
         # make the original mask into a 3 channel image, where the region inside the mask is bright red
         mask_image = cv2.cvtColor(mask[0], cv2.COLOR_GRAY2BGR)
@@ -69,6 +71,9 @@ def main():
         # draw the original mask and the refined mask over the original image as translucent masks
         combined_image = cv2.addWeighted(image, 0.5, mask_image, 0.5, 0)
         combined_image = cv2.addWeighted(image, 0.5, refined_mask_image, 0.5, 0)
+
+        # draw the centroid on the combined image
+        cv2.circle(combined_image, centroid, 5, (0, 0, 255), -1)
 
         # Display the combined image
         cv2.imshow("Mask Refinement", combined_image)
