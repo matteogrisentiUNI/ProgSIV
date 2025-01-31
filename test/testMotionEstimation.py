@@ -4,7 +4,7 @@ import psutil
 import glob
 import numpy as np
 import os
-from ObjectTracker import detection, H_mask_motion_estimation, H_motion_estimation
+from ObjectTracker import detection, mask_motion_estimation, motion_estimation
 
 def calculate_mean_run(file_path):
     
@@ -113,12 +113,14 @@ def test_H_motion_estimantion_video(video_path, object_detected,  output_folder=
     box = box.astype(np.float32)
 
     try:
-        good_previus_poi, good_next_poi, Hgl = H_mask_motion_estimation(previus_frame, next_frame, mask=mask, output_folder=output_folder)
+        good_previus_poi, good_next_poi, A = mask_motion_estimation(previus_frame, next_frame, mask=mask, output_folder=output_folder)
     except Exception as e:
         print(f"ERROR - mask motion estimation: {e}")
         return  # Termina la funzione
 
-    box = cv2.perspectiveTransform(box.reshape(-1, 1, 2), Hgl).reshape(-1, 4)
+    # Apply affine transformation
+    box = box.reshape(-1, 1, 2)
+    box = cv2.transform(box, A).reshape(-1, 4)
     x1, y1, x2, y2 = box[0]
 
     color_poi = (0, 255, 0)         # color point of interest
@@ -175,13 +177,13 @@ def test_H_motion_estimantion_video(video_path, object_detected,  output_folder=
         next_frame = cv2.cvtColor(next_frame_color, cv2.COLOR_BGR2GRAY)
 
         try:
-            good_previus_poi, good_next_poi, Hgl = H_motion_estimation(previus_frame, next_frame, previus_poi)
+            good_previus_poi, good_next_poi, A = motion_estimation(previus_frame, next_frame, previus_poi)
         except Exception as e:
             print(f"ERROR - motion estimation: {e}")
             return  # Termina la funzione
 
-        box = box.reshape(-1, 2) 
-        box = cv2.perspectiveTransform(box.reshape(-1, 1, 2), Hgl).reshape(-1, 4)
+        box = box.reshape(-1, 1, 2) 
+        box = cv2.transform(box, A).reshape(-1, 4)
         x1, y1, x2, y2 = box[0]
         # print(x1, y1, x2, y2, box)
 
@@ -322,10 +324,10 @@ def process_videos_in_folder(folder_path, object_detected, output_base_folder, s
 
 if __name__ == "__main__":
 
-    video_path = 'test/CarVideo/Car9.mp4'
-    output_folder = os.path.join('test/MotionEstimation/Car9')
+    video_path = 'test/CarVideo'
+    output_folder = os.path.join('test/MotionEstimations')
     object_detected = 'car'
 
-    test_H_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
-    #process_videos_in_folder(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
+    #test_H_motion_estimantion_video(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
+    process_videos_in_folder(video_path, object_detected, output_folder,  saveVideo=True, showVideo=True)
     
