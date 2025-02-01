@@ -1,8 +1,9 @@
 import os
 import cv2 
 import numpy as np
-from ObjectTracker import ObjectTracker, draw_mask, mask_refinement, feature_extraction, region_extraction
+from ObjectTracker import detection, mask_refinement, feature_extraction, region_extraction
 
+'''
 # Performs object detection of the target class on an image, 
 # Returns the boxes founded.
 def process_image(image_path, target_class, output_folder):
@@ -35,7 +36,7 @@ def process_image(image_path, target_class, output_folder):
     # print(f"\tProcessed image saved at {processed_image_path}")
 
     return masks,boxes
-
+'''
 
 def main():
     # Paths
@@ -45,7 +46,7 @@ def main():
 
     try:
         # Call the function to process the image and extract the box of roi
-        mask, boxes = process_image(image_path, 'person', output_folder)
+        mask, boxes = detection(image_path, 'person', output_folder)
 
         # Load an image
         image = cv2.imread(image_path)  # Input image (BGR format)
