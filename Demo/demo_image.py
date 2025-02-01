@@ -1,8 +1,8 @@
 import os
 import cv2 
-from ObjectTracker import ObjectTracker, draw_mask, extract_region_of_interest_with_mask
+from ObjectTracker import detection, extract_region_of_interest_with_mask
 
-
+'''
 # Performs object detection of the target class on an image, 
 # Returns the boxes founded.
 def process_image(image_path, target_class, output_folder):
@@ -35,7 +35,7 @@ def process_image(image_path, target_class, output_folder):
     # print(f"\tProcessed image saved at {processed_image_path}")
 
     return masks,boxes
-
+'''
 
 def main():
     # Paths
@@ -45,7 +45,7 @@ def main():
 
     try:
         # Call the function to process the image and extract the box of roi
-        masks,boxes = process_image(image_path, 'car', output_folder)
+        masks,boxes = detection(image_path, 'car', output_folder)
 
         # Extract the roi of the first box
         contours, region, color_histogram = extract_region_of_interest_with_mask(image_path, masks[0], boxes[0], output_folder)
