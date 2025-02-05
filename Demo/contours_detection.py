@@ -17,6 +17,7 @@ if __name__ == "__main__":
     output_image = cropped_image.copy()
     contours_image = np.zeros_like(output_image)
     for contour in major_contours:
+        contour = contours.simplify_contours([contour])[0]
         # Generate a random color
         color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         # Draw the contour with the random color and fill it with the same translucent color

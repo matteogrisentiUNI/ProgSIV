@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 def get_major_contours(image, min_contour_area=150, closing_kernel_size=(5, 5)):
     """
@@ -53,6 +54,15 @@ def get_major_contours(image, min_contour_area=150, closing_kernel_size=(5, 5)):
     print(f"Filtered {len(major_contours)} major contours (area > {min_contour_area}).")
     
     return major_contours, found_edges  # Returning the modified edge image for debugging
+
+def simplify_contours(contours, epsilon_factor=0.001):
+    simplified = []
+    for cnt in contours:
+        peri = cv2.arcLength(cnt, True)
+        epsilon = epsilon_factor * peri
+        approx = cv2.approxPolyDP(cnt, epsilon, True)
+        simplified.append(approx)
+    return simplified
 
 def calculate_contour_descriptors(contour):
     """
@@ -144,3 +154,113 @@ def calculate_contour_descriptors(contour):
         "Number of Corners": num_corners,
         "Number of Curves": num_curves,
     }
+
+def process_contour(contour, distance_threshold=15):
+    """
+    Process a contour to remove noisy "blob-like" structures based on the given algorithm.
+    
+    Args:
+        contour (numpy.ndarray): The input contour (Nx1x2 array from OpenCV).
+        distance_threshold (float): Maximum distance to consider points as neighbors.
+
+    Returns:
+        numpy.ndarray: The processed contour.
+    """
+    # Flatten the contour for easier processing
+    contour = contour[:, 0, :]  # Convert Nx1x2 to Nx2
+    n = len(contour)
+
+    #print(f"Initial number of points in the contour: {n}")
+    
+    # Initialize the index manually for the while loop
+    i = 0
+    while i < len(contour):
+        point = contour[i]
+        neighbors = []
+        print("Processing point:", i)
+        
+        # Find neighbors within the distance threshold
+        for j, other_point in enumerate(contour):
+            if i == j:
+                continue
+            euclidean_dist = np.linalg.norm(point - other_point)
+            direction = True
+            
+            if euclidean_dist < distance_threshold:
+                # Compute contour-following distance (clockwise) - corrected
+                if i < j:
+                    clockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(i, j)
+                    ])
+                else:
+                    clockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(i, n)
+                    ]) + np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(0, j)
+                    ])
+                
+                # Compute contour-following distance (anticlockwise)
+                if i > j:
+                    anticlockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(j, i)
+                    ])
+                else:
+                    anticlockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(j, n)
+                    ]) + np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(0, i)
+                    ])
+
+
+                if clockwise_distance > anticlockwise_distance:
+                    contour_distance = anticlockwise_distance
+                    direction = False
+                else:
+                    contour_distance = clockwise_distance
+                
+                neighbors.append((j, euclidean_dist, contour_distance, direction))
+        
+        # If there are neighbors, process them
+        if len(neighbors) > 0:
+            print("Total number of neighbors:", len(neighbors))
+            # Sort neighbors by descending Contour distance
+            neighbors = sorted(neighbors, key=lambda x: x[2], reverse=True)
+            # Check for valid connections and remove intermediate points
+            for neighbor in neighbors:
+                index, euclidean_dist, contour_dist, direction = neighbor
+                print(f"Point {i} -> Neighbor {index}: Euclidean={euclidean_dist:.2f}, Contour={contour_dist:.2f}")
+                
+                if euclidean_dist < contour_dist/1.05:
+                    # Connect the points directly
+                    print(f"Connecting Point {i} and Point {index}, removing intermediate points.")
+                    if direction:
+                        # Remove from the original contour all the points that connect the two points along the clockwise direction
+                        contour = np.delete(contour, range(i + 1, index), axis=0)
+                    else:
+                        # Remove from the original contour all the points that connect the two points along the anticlockwise direction
+                        contour = np.delete(contour, range(index + 1, i + n), axis=0)
+                    n = len(contour)
+                    print(f"New number of points in the contour: {n}")
+                    break
+                print(f"Point {i} is valid, skipping to the next point.")
+        else: 
+            print(f"Point {i} has no neighbors, skipping to the next point.")
+        i += 1
+    #print(f"Final number of points in the processed contour: {len(contour)}")
+
+    # Apply operation to smoothen the contour
+    #contour = smooth_contour(contour, sigma=0.0)
+
+    return contour
+
+def smooth_contour(contour, sigma=1.0):
+    # Apply Gaussian filter to x and y coordinates separately
+    contour[:, 0] = gaussian_filter1d(contour[:, 0], sigma=sigma)
+    contour[:, 1] = gaussian_filter1d(contour[:, 1], sigma=sigma)
+    return contour

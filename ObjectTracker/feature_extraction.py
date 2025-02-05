@@ -3,7 +3,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 #Extracts the first set of feature from the YOLO Segmentation, it return:
 # - Contours of the object
 # - Region of the object ( mask )
@@ -132,8 +131,8 @@ def histogram_extraction(image, mask, output_folder=False):
 
         
         # Normalize histograms for better comparability
-        for color in color_histogram:               
-            color_histogram[color] = color_histogram[color] / color_histogram[color].sum()
+        #for color in color_histogram:               
+        #    color_histogram[color] = color_histogram[color] / color_histogram[color].sum()
 
 
         if output_folder:                   # Plot and save the histograms
