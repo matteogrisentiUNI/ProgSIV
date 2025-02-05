@@ -58,7 +58,7 @@ def main():
 
     try:
         # Call the function to process the image and extract the box of roi
-        mask, boxes = process_image(image_path, 'person', output_folder)
+        mask, boxes = detection(image_path, 'person', output_folder)
 
         # Load an image
         image = cv2.imread(image_path)  # Input image (BGR format)
