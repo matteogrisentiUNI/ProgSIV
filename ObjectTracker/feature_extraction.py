@@ -148,7 +148,7 @@ def histogram_extraction(image, mask, output_folder=False):
             plt.savefig(histogram_path)
             plt.close()
 
-        print(log, "OK ")
+        #print(log, "OK ")
 
     except ValueError as err:
         print(log, "ERROR \n\t ", err)

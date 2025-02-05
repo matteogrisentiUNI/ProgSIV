@@ -2,9 +2,221 @@ import cv2
 import numpy as np
 from collections import defaultdict
 from collections import defaultdict
-from matplotlib import pyplot as plt
-from ObjectTracker import contours as cs
+from scipy.ndimage import gaussian_filter1d
 
+# --- Contour Operations ---
+def simplify_contours(contours, epsilon_factor=0.001):
+    simplified = []
+    for cnt in contours:
+        peri = cv2.arcLength(cnt, True)
+        epsilon = epsilon_factor * peri
+        approx = cv2.approxPolyDP(cnt, epsilon, True)
+        simplified.append(approx)
+    return simplified
+
+def calculate_contour_descriptors(contour):
+    """
+    Calculate shape descriptors and curvature/edge features for a given contour.
+    """
+    if len(contour.shape) == 3:
+        contour = contour[:, 0, :]  # Flatten to Nx2
+
+    # Compute Moments
+    M = cv2.moments(contour)
+    if M["m00"] != 0:
+        centroid = (M["m10"] / M["m00"], M["m01"] / M["m00"])
+    else:
+        centroid = (0, 0)
+
+    # Compactness
+    area = cv2.contourArea(contour)
+    perimeter = cv2.arcLength(contour, True)
+    compactness = (perimeter ** 2) / (4 * np.pi * area) if area > 0 else 0
+
+    # Eccentricity
+    if len(contour) >= 5:  # Minimum 5 points needed to fit an ellipse
+        _, (major_axis, minor_axis), _ = cv2.fitEllipse(contour)
+        if major_axis < minor_axis:
+            major_axis, minor_axis = minor_axis, major_axis
+        eccentricity = np.sqrt(1 - (minor_axis ** 2 / major_axis ** 2))
+    else:
+        eccentricity = 0
+
+    # Convexity
+    hull = cv2.convexHull(contour)
+    hull_perimeter = cv2.arcLength(hull, True)
+    convexity = perimeter / hull_perimeter if hull_perimeter > 0 else 0
+
+    # Contour Curvature
+    curvature = []
+    k = 3
+    for i in range(len(contour)):
+        prev_point = contour[i - k]
+        curr_point = contour[i]
+        next_point = contour[(i + k) % len(contour)]
+
+        area = 0.5 * np.abs(
+            prev_point[0] * (curr_point[1] - next_point[1]) +
+            curr_point[0] * (next_point[1] - prev_point[1]) +
+            next_point[0] * (prev_point[1] - curr_point[1])
+        )
+        edge1 = np.linalg.norm(prev_point - curr_point)
+        edge2 = np.linalg.norm(curr_point - next_point)
+        edge3 = np.linalg.norm(next_point - prev_point)
+        curvature_value = (4 * area) / (edge1 * edge2 * edge3 + 1e-10)
+        curvature.append(curvature_value)
+
+    # Simplify the contour as a polygon, approximating corners as straight lines (epsilon=0.02*perimeter)
+    epsilon = 0.005 * perimeter
+    approx = cv2.approxPolyDP(contour, epsilon, True)
+    num_corners = len(approx)
+
+    # Get the number of curves (starting from a corner, count how many times does the curve change direction)
+    num_curves = 0
+    prev_angle = None
+    for i in range(len(approx)):
+        prev_point = approx[i - 1][0]
+        curr_point = approx[i][0]
+        next_point = approx[(i + 1) % len(approx)][0]
+
+        # Compute the angle between the edges
+        edge1 = prev_point - curr_point
+        edge2 = next_point - curr_point
+        angle = np.arccos(np.dot(edge1, edge2) / (np.linalg.norm(edge1) * np.linalg.norm(edge2) + 1e-10))
+        if prev_angle is not None:
+            if angle > prev_angle:
+                num_curves += 1
+        prev_angle = angle
+
+    # draw and show the white contour over black background
+    '''img = np.zeros((512, 512, 3), np.uint8)
+    cv2.drawContours(img, [approx], -1, (255, 255, 255), 3)
+    cv2.imshow('image', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()'''
+
+    return {
+        "Centroid": centroid,
+        "Compactness": compactness,
+        "Eccentricity": eccentricity,
+        "Convexity": convexity,
+        "Contour Curvature": curvature,
+        "Number of Corners": num_corners,
+        "Number of Curves": num_curves,
+    }
+
+def process_contour(contour, distance_threshold=15):
+    """
+    Process a contour to remove noisy "blob-like" structures based on the given algorithm.
+    
+    Args:
+        contour (numpy.ndarray): The input contour (Nx1x2 array from OpenCV).
+        distance_threshold (float): Maximum distance to consider points as neighbors.
+
+    Returns:
+        numpy.ndarray: The processed contour.
+    """
+    # Flatten the contour for easier processing
+    contour = contour[:, 0, :]  # Convert Nx1x2 to Nx2
+    n = len(contour)
+
+    #print(f"Initial number of points in the contour: {n}")
+    
+    # Initialize the index manually for the while loop
+    i = 0
+    while i < len(contour):
+        point = contour[i]
+        neighbors = []
+        #print("Processing point:", i)
+        
+        # Find neighbors within the distance threshold
+        for j, other_point in enumerate(contour):
+            if i == j:
+                continue
+            euclidean_dist = np.linalg.norm(point - other_point)
+            direction = True
+            
+            if euclidean_dist < distance_threshold:
+                # Compute contour-following distance (clockwise) - corrected
+                if i < j:
+                    clockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(i, j)
+                    ])
+                else:
+                    clockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(i, n)
+                    ]) + np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(0, j)
+                    ])
+                
+                # Compute contour-following distance (anticlockwise)
+                if i > j:
+                    anticlockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(j, i)
+                    ])
+                else:
+                    anticlockwise_distance = np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(j, n)
+                    ]) + np.sum([
+                        np.linalg.norm(contour[(k + 1) % n] - contour[k]) 
+                        for k in range(0, i)
+                    ])
+
+
+                if clockwise_distance > anticlockwise_distance:
+                    contour_distance = anticlockwise_distance
+                    direction = False
+                else:
+                    contour_distance = clockwise_distance
+                
+                neighbors.append((j, euclidean_dist, contour_distance, direction))
+        
+        # If there are neighbors, process them
+        if len(neighbors) > 0:
+            #print("Total number of neighbors:", len(neighbors))
+            # Sort neighbors by descending Contour distance
+            neighbors = sorted(neighbors, key=lambda x: x[2], reverse=True)
+            # Check for valid connections and remove intermediate points
+            for neighbor in neighbors:
+                index, euclidean_dist, contour_dist, direction = neighbor
+                #print(f"Point {i} -> Neighbor {index}: Euclidean={euclidean_dist:.2f}, Contour={contour_dist:.2f}")
+                
+                if euclidean_dist < contour_dist/1.05:
+                    # Connect the points directly
+                    #print(f"Connecting Point {i} and Point {index}, removing intermediate points.")
+                    if direction:
+                        # Remove from the original contour all the points that connect the two points along the clockwise direction
+                        contour = np.delete(contour, range(i + 1, index), axis=0)
+                    else:
+                        # Remove from the original contour all the points that connect the two points along the anticlockwise direction
+                        contour = np.delete(contour, range(index + 1, i + n), axis=0)
+                    n = len(contour)
+                    #print(f"New number of points in the contour: {n}")
+                    break
+                #print(f"Point {i} is valid, skipping to the next point.")
+        #else: 
+            #print(f"Point {i} has no neighbors, skipping to the next point.")
+        i += 1
+    #print(f"Final number of points in the processed contour: {len(contour)}")
+
+    # Apply operation to smoothen the contour
+    #contour = smooth_contour(contour, sigma=0.0)
+
+    return contour
+
+def smooth_contour(contour, sigma=1.0):
+    # Apply Gaussian filter to x and y coordinates separately
+    contour[:, 0] = gaussian_filter1d(contour[:, 0], sigma=sigma)
+    contour[:, 1] = gaussian_filter1d(contour[:, 1], sigma=sigma)
+    return contour
+
+
+# --- Histogram Operations ---
 def add_histograms(current_histogram, added_histogram):
     """
     Adds two histograms represented as dictionaries ('blue', 'green', 'red').
@@ -36,56 +248,6 @@ def remove_histograms(current_histogram, removed_histogram):
     for channel in ['blue', 'green', 'red']:
         refined_histogram[channel] = current_histogram[channel] - removed_histogram[channel]
     return refined_histogram
-
-def plot_histograms(hist1, hist2):
-    """
-    Plot two histograms on the same graph.
-
-    Args:
-        hist1: A dictionary containing histograms for 'blue', 'green', and 'red' channels (line graph).
-        hist2: A dictionary containing histograms for 'blue', 'green', and 'red' channels (bar chart).
-    """
-    # Create a black image to display the plot
-    img = np.zeros((400, 512, 3), dtype=np.uint8)
-
-    # Create a Matplotlib figure
-    plt.figure(figsize=(10, 6))
-
-    # Loop through each color channel
-    for color in ['blue', 'green', 'red']:
-        # Get the histogram data for the current color
-        hist_values1 = hist1[color]
-        hist_values2 = hist2[color]
-
-        # Generate x-axis values (0-255)
-        x_values = np.arange(256)
-
-        # Plot the first histogram as a line graph
-        plt.plot(x_values, hist_values1, color=color, label=f'{color} (line)')
-
-        # Plot the second histogram as a bar chart
-        plt.bar(x_values, hist_values2, color=color, alpha=0.5, label=f'{color} (bar)')
-
-    # Add labels, legend, and title
-    plt.xlabel('Pixel Value')
-    plt.ylabel('Number of Pixels')
-    plt.title('Histograms for RGB Channels')
-    plt.legend()
-
-    # Save the plot as an image to show in OpenCV
-    plt.savefig('histogram_plot.png')
-    plt.close()
-
-    # Load the saved plot as an image
-    plot_img = cv2.imread('histogram_plot.png')
-
-    # Resize for better display
-    plot_img = cv2.resize(plot_img, (800, 600))
-
-    # Display the image using OpenCV
-    cv2.imshow('Histograms', plot_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
 
 def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
     """
@@ -121,83 +283,6 @@ def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
 
     return hist_dict
 
-def visualize_superpixel_histogram(image, labels, superpixel_id, bins=256):
-    """
-    Calculate and visualize histogram for a specific superpixel using OpenCV.
-    The image and histogram are displayed without deformation, with empty spaces filled with black.
-    
-    Args:
-        image: Input image (grayscale or color).
-        labels: Superpixel label map from SLIC.
-        superpixel_id: ID of the superpixel to analyze.
-        bins: Number of histogram bins (default 256).
-    """
-    # Create mask for the specific superpixel
-    mask = (labels == superpixel_id).astype(np.uint8)
-    
-    # Create visualization of the superpixel mask
-    mask_vis = image.copy()
-    mask_vis[mask == 1] = 0  # Set superpixel pixels to black
-
-    # Dimensions for the histogram image
-    hist_height = 400
-    hist_width = 512
-    hist_image = np.zeros((hist_height, hist_width, 3), np.uint8)
-
-    if len(image.shape) == 2:  # Grayscale
-        pixels = image[mask == 1]
-        hist = cv2.calcHist([pixels], [0], None, [bins], [0, 256])
-
-        # Normalize histogram for visualization
-        cv2.normalize(hist, hist, 0, hist_height, cv2.NORM_MINMAX)
-
-        # Draw histogram
-        for i in range(bins - 1):
-            cv2.line(hist_image, 
-                     (int(i * hist_width / bins), hist_height - int(hist[i])),
-                     (int((i + 1) * hist_width / bins), hist_height - int(hist[i + 1])),
-                     (255, 255, 255), 2)
-
-    else:  # Color image
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # BGR format
-        hist = {}
-
-        for i, color in enumerate(['blue', 'green', 'red']):
-            pixels = image[:, :, i][mask == 1]
-            channel_hist = cv2.calcHist([pixels], [0], None, [bins], [0, 256]).flatten()
-            hist[color] = channel_hist
-
-            # Normalize histogram for visualization
-            cv2.normalize(channel_hist, channel_hist, 0, hist_height, cv2.NORM_MINMAX)
-
-            # Draw histogram
-            for j in range(bins - 1):
-                cv2.line(hist_image,
-                         (int(j * hist_width / bins), hist_height - int(channel_hist[j])),
-                         (int((j + 1) * hist_width / bins), hist_height - int(channel_hist[j + 1])),
-                         colors[i], 2)
-
-    # Add padding to maintain aspect ratio
-    mask_height, mask_width = mask_vis.shape[:2]
-    combined_width = hist_width + mask_width
-    combined_height = max(hist_height, mask_height)
-
-    # Create a black canvas for combined image
-    combined = np.zeros((combined_height, combined_width, 3), dtype=np.uint8)
-
-    # Place mask visualization
-    combined[:mask_height, :mask_width, :] = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR) if len(image.shape) == 2 else mask_vis
-
-    # Place histogram
-    combined[:hist_height, mask_width:mask_width + hist_width, :] = hist_image
-
-    # Show the combined image
-    cv2.imshow('Superpixel Analysis', combined)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    return hist, mask_vis
-
 def check_constraints(hist1, hist2, tolerance=10):
     """
     Compares two histograms to ensure the second histogram never exceeds the first.
@@ -220,6 +305,8 @@ def check_constraints(hist1, hist2, tolerance=10):
                 unsatisfied_down += 1
     return unsatisfied_up, unsatisfied_down
 
+
+# --- Superpixel Operations ---
 def remove_border_superpixels(labels, min_border_pixels=5):
     """
     Removes superpixels that touch the image borders with at least `min_border_pixels` pixels.
@@ -263,23 +350,7 @@ def remove_border_superpixels(labels, min_border_pixels=5):
     
     return updated_labels
 
-def show_translucent_mask(image, labels, mask_labels):
-    """
-    Compose a mask from the union of superpixels (mask_labels) and overlay it translucently on the image.
-    """
-    import cv2
-    import numpy as np
-    union_mask = np.zeros(labels.shape, dtype=np.uint8)
-    for sp in mask_labels:
-        union_mask[labels == sp] = 255
-    # Create a BGR version of the union mask
-    union_mask_bgr = cv2.cvtColor(union_mask, cv2.COLOR_GRAY2BGR)
-    # Overlay: 70% original image, 30% mask (here mask is white)
-    overlay = cv2.addWeighted(image, 0.7, union_mask_bgr, 0.3, 0)
-    cv2.imshow("Growing - Current Segmentation", overlay)
-    cv2.waitKey(1)  # short delay to update window
-
-def create_overlay(image, labels, mask_labels):
+def create_mask(labels, mask_labels):
     """
     Create an overlay of the biggest contour over a black image of the same size as the input image.
 
@@ -289,71 +360,50 @@ def create_overlay(image, labels, mask_labels):
         mask_labels (list or set): List of labels to include in the mask.
     
     Returns:
-        np.ndarray: Black image with the biggest contour overlay.
+        mask
     """
-    # Create a black image of the same size as the input image
-    black_img = np.zeros_like(image, dtype=np.uint8)
-    
     # Create the union mask
     union_mask = np.zeros(labels.shape, dtype=np.uint8)
     for sp in mask_labels:
         union_mask[labels == sp] = 255  # Set mask pixels to white (255)
-
     # Find the biggest contour
     contours, _ = cv2.findContours(union_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = cs.simplify_contours(contours)
+    contours = simplify_contours(contours)
+    mask = np.zeros(labels.shape, dtype=np.uint8)
     if contours:
         # Get the largest contour based on area
         max_contour = max(contours, key=cv2.contourArea)
-        processed_contour = cs.process_contour(max_contour)
-        
-        # Draw the largest contour on the black image
-        cv2.drawContours(black_img, [processed_contour], -1, (255, 255, 255), thickness=1)
-    
-    #final_image = cs.refine_contour(black_img, 2)
-
-    return black_img
-
-def find_centroid(mask):
-    """
-    Finds the centroid inside a given mask.
-    
-    Args:
-        mask (numpy.ndarray): The binary mask (same size as the image).
-    
-    Returns:
-        entroid
-    """
-    # Calculate the centroid
-    moments = cv2.moments(mask)
-    if moments["m00"] != 0:
-        cx = int(moments["m10"] / moments["m00"])
-        cy = int(moments["m01"] / moments["m00"])
-    else:
-        raise ValueError("The mask is empty or has no area.")
-    centroid = (cx, cy)
-
-    # Check if the centroid is inside the mask
-    if mask[cy, cx] == 0:
-        centroidBackup = centroid
-        #find the nearest point inside the mask
-        while mask[cy, cx] == 0:
-            if cy > 0:
-                cy -= 1
-            elif cx > 0:
-                cx -= 1
-            else:
-                break
-        centroidBackup = (cx, cy)
-        # get the vector from the original centroid to the new centroid
-        vector = (cx - centroidBackup[0], cy - centroidBackup[1])
-        # move the centroid of 1. times the vector
-        centroid = (int(centroidBackup[0] + vector[0] * 1.5), int(centroidBackup[1] + vector[1] * 1.5)) 
-        # print(f"Centroid moved from {centroidBackup} to {centroid}")
-        
-    return centroid
+        processed_contour = process_contour(max_contour)
+        # Get bounding box of the processed contour
+        x, y, w, h = cv2.boundingRect(processed_contour)
+        # Create a new black image of the size of the bounding box
+        mask = np.zeros(union_mask.shape, dtype=np.uint8)
+        # Draw the processed contour on the black image
+        cv2.drawContours(mask, [processed_contour], 0, 255, -1)
+        # Crop the union mask to the bounding box
+        mask = mask[y:y+h, x:x+w]
+    return mask
 
 def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=cv2.ximgproc.SLIC, compactness=5):
+    """
+    Performs SLIC (Simple Linear Iterative Clustering) superpixel segmentation on the input image.
+
+    Parameters:
+    - image (numpy.ndarray): Input image in BGR format.
+    - num_superpixels (int): Approximate number of superpixels to generate. Default is 300.
+    - merge_threshold (float): Threshold for merging adjacent superpixels based on color similarity.
+                               If <= 0, no merging is performed. Default is 20.
+    - slic_type (int): Type of SLIC algorithm to use (e.g., cv2.ximgproc.SLIC, SLICO, or MSLIC). Default is cv2.ximgproc.SLIC.
+    - compactness (float): Compactness factor for superpixel shape regularity. Higher values lead to more compact shapes. Default is 5.
+
+    Returns:
+    - merged_labels (numpy.ndarray): 2D array of final superpixel labels after merging, with each pixel assigned a superpixel ID.
+    - merged_mask (numpy.ndarray): 2D binary mask with thick boundaries for the final merged superpixels.
+    - merged_result (numpy.ndarray): Input image with the final merged superpixel boundaries highlighted in green.
+    - cluster_info (dict): Information about the final clusters, including:
+        - "avg_bgr": Dictionary mapping each superpixel ID to its average BGR color.
+        - "size": Dictionary mapping each superpixel ID to its pixel count.
+    """
     # --- SLIC Segmentation ---
     lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     region_size = int(np.sqrt(image.size / num_superpixels))
@@ -461,15 +511,13 @@ def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=
 
 def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
     """
-    Implements histogram-based region growing from centroid with shape priors.
+    Implements histogram-based superpixel selection
     
     Args:
         image: Input BGR image.
         labels: Superpixel label map from SLIC.
         pred_hist: Dictionary of predicted histograms {'blue': [...], 'green': [...], 'red': [...]}
-        shape_info: Dictionary of shape properties.
-        centroid: (y, x) tuple of object center.
-        tolerance: Allowed overflow percentage (0-1).
+        tolerance: Allowed overflow.
         
     Returns:
         Final segmentation mask (list of superpixel labels).
@@ -483,7 +531,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
 
     # Assign border superpixels to background (label == -1)
     labels = remove_border_superpixels(initial_labels)
-    #labels = label_isolated_superpixels(filtered_labels)
+    print("final number of labels: ", len(np.unique(labels)))
     # Initialize current histogram as sum of all superpixels
     current_histogram = {
         'blue': np.zeros(256, dtype=int),
@@ -494,11 +542,11 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
     for label_i in valid_labels:
         sp_hist = get_superpixel_histogram(image, initial_labels, label_i)
         current_histogram = add_histograms(current_histogram, sp_hist)
-    print(f"Initialized histogram")
+    #print(f"Initialized histogram")
 
     # Check constraints
     unsatisfied_up, unsatisfied_down = check_constraints(pred_hist, current_histogram, tolerance)
-    print(f"Unsatisfied up: {unsatisfied_up}, unsatisfied down: {unsatisfied_down}")
+    #print(f"Unsatisfied up: {unsatisfied_up}, unsatisfied down: {unsatisfied_down}")
     #plot_histograms(pred_hist, current_histogram)
 
     final_labels = []
@@ -506,7 +554,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
     # --- Region Refining Loop ---
     while valid_labels and unsatisfied_up>100 and unsatisfied_down<200:
         current_label = valid_labels.pop(0)
-        print(f"Current label: {current_label}")
+        #print(f"Current label: {current_label}")
         debug['checked'] += 1
 
         # Get superpixel properties
@@ -516,7 +564,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
         
         # Check new constraints
         new_up, new_down = check_constraints(pred_hist, temp_hist, tolerance)
-        print(f"New up: {new_up}, new down: {new_down}")
+        #print(f"New up: {new_up}, new down: {new_down}")
         
         # Decision criteria
         if new_up < unsatisfied_up and new_down <= (unsatisfied_down):
@@ -524,21 +572,36 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
             unsatisfied_up = new_up
             unsatisfied_down = new_down
             debug['removed'] += 1
-            print(f"Removed {current_label} | New Up: {new_up}, Down: {new_down}")
+            #print(f"Removed {current_label} | New Up: {new_up}, Down: {new_down}")
             
         else:
-            print("current label is valid")
+            #print("current label is valid")
             final_labels.append(current_label)
             #plot_histograms(pred_hist, current_histogram)
             #show_translucent_mask(image, initial_labels, final_labels)
             debug['underflow_rejected'] += 1
 
-    # --- Final Visualization ---
-    mask = create_overlay(image, initial_labels, final_labels)
-    plot_histograms(pred_hist, current_histogram)
-    cv2.imshow("Final Segmentation", mask)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    #print("Debug info:", debug)
+    return final_labels
 
-    print("Debug info:", debug)
-    return valid_labels
+
+# --- Main Function ---
+def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None):
+    #print("Image Shape: ", cropped_image.shape)
+
+    # --- SLIC Segmentation ---
+    slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
+    #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
+    # --- Region Refinement ---
+    final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance)
+    #print("Region Refinement Completed, final number of labels: ", len(np.unique(final_labels)))
+    # --- Final Visualization ---
+    mask = create_mask(slic_labels, final_labels)
+
+    #print("Final Mask Shape: ", mask.shape)
+
+    if output_folder is not None:
+        # Save the final mask
+        cv2.imwrite(f"{output_folder}/final_mask.png", mask)
+
+    return mask
