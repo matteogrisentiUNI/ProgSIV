@@ -8,7 +8,7 @@ A Python library for efficient object tracking and segmentation using low-level 
 - Dynamic cropping for computational efficiency.
 
 # Installation
-I do not have enough information to write this.
+pip install git+https://github.com/matteogrisenti/ProgSIV.git
 
 # Pipeline Overview
 - **Initial Object Detection**: Uses a YOLO v8_seg model, pre-trained on COCO, to detect the bounding box and mask of the object in the first frame.
