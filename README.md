@@ -1,4 +1,4 @@
-# Low Level Object Tracking & Segmentation (LLOBS)
+# Low Level Object Tracking & Segmentation (LOB&S)
 A Python library for efficient object tracking and segmentation using low-level video and image processing techniques.
 
 # Features
