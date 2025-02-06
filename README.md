@@ -1,4 +1,4 @@
-# Low Level Object Tracking & Segmentation (LLOB)
+# Low-Level Object Tracking & Segmentation (LOB)
 A Python library for efficient object tracking and segmentation using low-level video and image processing techniques.
 
 # Features
