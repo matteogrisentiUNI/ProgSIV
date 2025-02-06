@@ -160,7 +160,8 @@ def show_translucent_mask(image, labels, mask_labels):
     # Overlay: 70% original image, 30% mask (here mask is white)
     overlay = cv2.addWeighted(image, 0.7, union_mask_bgr, 0.3, 0)
     cv2.imshow("Growing - Current Segmentation", overlay)
-    cv2.waitKey(1)  # short delay to update window
+    cv2.waitKey(0)  # short delay to update window
+    cv2.destroyAllWindows()
 
 def draw_mask(frame, boxes, masks, class_names):
     for box, mask, class_name in zip(boxes, masks, class_names):
@@ -232,3 +233,46 @@ def find_centroid(mask):
         # print(f"Centroid moved from {centroidBackup} to {centroid}")
         
     return centroid
+
+def resize(image, box, mask, target_pixels):
+    im_x, im_y = image.shape[:2]  # Shape of the image (height, width)
+
+    # Resize the mask to match the image dimensions
+    mask = cv2.resize(mask, (im_y, im_x), interpolation=cv2.INTER_NEAREST)
+
+    x1, y1, x2, y2 = box
+    x1 = max(0,int(x1-(x2-x1)*0.1))
+    x2 = min(im_y,int(x2+(x2-x1)*0.1))
+    y1 = max(0, int(y1-(y2-y1)*0.1))
+    y2 = min(im_x,int(y2+(y2-y1)*0.1))
+
+    # Crop image and mask to get the segmented ROI
+    bounded_image = image[y1:y2, x1:x2] # Cut the region of interest from the image
+    bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
+
+    original_pixels = (x2-x1) * (y2-y1) # Get the dimensions of the original image
+    scaling_factor = (target_pixels / original_pixels) ** 0.5  # Calculate the scaling factor to reach the target pixel count  
+    new_width = int((x2-x1) * scaling_factor)
+    new_height = int((y2-y1) * scaling_factor)
+    
+    # Perform resizing
+    resized_image = cv2.resize(bounded_image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+
+    # Resize the mask       
+    resized_mask = cv2.resize(bounded_mask, (new_width, new_height),  interpolation=cv2.INTER_NEAREST)  # Resize mask to image dimensions
+
+    '''# Debug print the scaling factor
+    print(f"Scaling factor: {scaling_factor:.4f}")
+    
+    # Show the original and resized images
+    cv2.imshow("Original Image", image)
+    cv2.imshow("Original Mask", mask)
+    cv2.imshow("Bounded Image", bounded_image)
+    cv2.imshow("Resized Image", resized_image)
+    cv2.imshow("Bounded Mask", bounded_mask)
+    cv2.imshow("Resized Mask", resized_mask)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()'''
+
+    return resized_image, resized_mask
+  

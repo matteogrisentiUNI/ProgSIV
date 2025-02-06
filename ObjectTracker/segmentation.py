@@ -3,6 +3,7 @@ import numpy as np
 from collections import defaultdict
 from collections import defaultdict
 from scipy.ndimage import gaussian_filter1d
+from ObjectTracker import utils
 
 # --- Contour Operations ---
 def simplify_contours(contours, epsilon_factor=0.001):
@@ -137,6 +138,7 @@ def process_contour(contour, distance_threshold=15):
             direction = True
             
             if euclidean_dist < distance_threshold:
+                #print("Adding neighbor:", j)
                 # Compute contour-following distance (clockwise) - corrected
                 if i < j:
                     clockwise_distance = np.sum([
@@ -173,6 +175,7 @@ def process_contour(contour, distance_threshold=15):
                     direction = False
                 else:
                     contour_distance = clockwise_distance
+                #print(f"Euclidean distance: {euclidean_dist:.2f}, Contour distance: {contour_distance:.2f}")
                 
                 neighbors.append((j, euclidean_dist, contour_distance, direction))
         
@@ -190,11 +193,14 @@ def process_contour(contour, distance_threshold=15):
                     # Connect the points directly
                     #print(f"Connecting Point {i} and Point {index}, removing intermediate points.")
                     if direction:
+                        #print(f"Connecting Point {i} and Point {index}, removing intermediate points clockwise.")
                         # Remove from the original contour all the points that connect the two points along the clockwise direction
                         contour = np.delete(contour, range(i + 1, index), axis=0)
                     else:
+                        #print(f"Connecting Point {i} and Point {index}, removing intermediate points anticlockwise.")
                         # Remove from the original contour all the points that connect the two points along the anticlockwise direction
-                        contour = np.delete(contour, range(index + 1, i + n), axis=0)
+                        contour = np.delete(contour, range(index + 1, n), axis=0)
+                        contour = np.delete(contour, range(0, i), axis=0)
                     n = len(contour)
                     #print(f"New number of points in the contour: {n}")
                     break
@@ -202,6 +208,7 @@ def process_contour(contour, distance_threshold=15):
         #else: 
             #print(f"Point {i} has no neighbors, skipping to the next point.")
         i += 1
+        #print(f"Processed point {i} of {len(contour)}")
     #print(f"Final number of points in the processed contour: {len(contour)}")
 
     # Apply operation to smoothen the contour
@@ -373,6 +380,12 @@ def create_mask(labels, mask_labels):
     if contours:
         # Get the largest contour based on area
         max_contour = max(contours, key=cv2.contourArea)
+        #print (f"Contour area: {cv2.contourArea(max_contour)}")
+        '''# show contour
+        cv2.drawContours(mask, [max_contour], 0, 255, -1)
+        cv2.imshow("Contour", mask)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
         processed_contour = process_contour(max_contour)
         # Get bounding box of the processed contour
         x, y, w, h = cv2.boundingRect(processed_contour)
@@ -507,9 +520,16 @@ def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=
         "size": {i: cluster_size[root] for i, root in enumerate(unique_roots)}
     }
     
+    '''# show results
+    cv2.imshow("Original", image)
+    cv2.imshow("SLIC Segmentation", merged_result)
+    cv2.imshow("SLIC Mask", merged_mask)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()'''
+
     return merged_labels, merged_mask, merged_result, cluster_info
 
-def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
+def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15):
     """
     Implements histogram-based superpixel selection
     
@@ -531,7 +551,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
 
     # Assign border superpixels to background (label == -1)
     labels = remove_border_superpixels(initial_labels)
-    print("final number of labels: ", len(np.unique(labels)))
+    #print("final number of labels: ", len(np.unique(labels)))
     # Initialize current histogram as sum of all superpixels
     current_histogram = {
         'blue': np.zeros(256, dtype=int),
@@ -539,6 +559,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
         'red': np.zeros(256, dtype=int)
     }
     valid_labels = [l for l in np.unique(labels) if l != -1]
+    #print(f"Valid labels length: {len(valid_labels)}")
     for label_i in valid_labels:
         sp_hist = get_superpixel_histogram(image, initial_labels, label_i)
         current_histogram = add_histograms(current_histogram, sp_hist)
@@ -547,12 +568,12 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
     # Check constraints
     unsatisfied_up, unsatisfied_down = check_constraints(pred_hist, current_histogram, tolerance)
     #print(f"Unsatisfied up: {unsatisfied_up}, unsatisfied down: {unsatisfied_down}")
-    #plot_histograms(pred_hist, current_histogram)
+    #utils.plot_histograms(pred_hist, current_histogram)
 
     final_labels = []
 
     # --- Region Refining Loop ---
-    while valid_labels and unsatisfied_up>100 and unsatisfied_down<200:
+    while valid_labels:
         current_label = valid_labels.pop(0)
         #print(f"Current label: {current_label}")
         debug['checked'] += 1
@@ -567,7 +588,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
         #print(f"New up: {new_up}, new down: {new_down}")
         
         # Decision criteria
-        if new_up < unsatisfied_up and new_down <= (unsatisfied_down):
+        if new_up < unsatisfied_up and new_down <= unsatisfied_down:
             current_histogram = temp_hist
             unsatisfied_up = new_up
             unsatisfied_down = new_down
@@ -580,25 +601,35 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10):
             #plot_histograms(pred_hist, current_histogram)
             #show_translucent_mask(image, initial_labels, final_labels)
             debug['underflow_rejected'] += 1
-
+    #utils.plot_histograms(pred_hist, current_histogram)
     #print("Debug info:", debug)
     return final_labels
 
 
 # --- Main Function ---
 def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None):
-    #print("Image Shape: ", cropped_image.shape)
+    print("Image Shape: ", cropped_image.shape)
 
     # --- SLIC Segmentation ---
     slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
     #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
+    '''# show results
+    cv2.imshow("Original", cropped_image)
+    cv2.imshow("SLIC Segmentation", slic_result)
+    cv2.imshow("SLIC Mask", slic_mask)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()'''
+
     # --- Region Refinement ---
     final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance)
     #print("Region Refinement Completed, final number of labels: ", len(np.unique(final_labels)))
+    # show the final labels
+    #utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
+
     # --- Final Visualization ---
     mask = create_mask(slic_labels, final_labels)
 
-    #print("Final Mask Shape: ", mask.shape)
+    print("Final Mask Shape: ", mask.shape)
 
     if output_folder is not None:
         # Save the final mask
