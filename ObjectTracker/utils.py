@@ -2,6 +2,34 @@ import cv2
 from matplotlib import pyplot as plt
 import numpy as np
 import random
+import os
+
+def draw_histogtams(hist, height, width):
+    # Plot a instogram on a graph
+    plt.figure(figsize=(width / 100, height / 100))
+    plt.title("Color Histogram ")
+    plt.xlabel("Pixel Intensity")
+    plt.ylabel("Normalized Frequency")
+    plt.plot(hist["blue"], color="blue", label="Blue")
+    plt.plot(hist["green"], color="green", label="Green")
+    plt.plot(hist["red"], color="red", label="Red")
+    plt.legend()
+
+    # Save the plot as an image to show in OpenCV
+    temp_filename = 'histogram_plot.png'
+    plt.savefig(temp_filename)
+    plt.close()
+
+    # Load the saved plot as an image
+    plot_img = cv2.imread(temp_filename)
+
+    # Resize for better display
+    plot_img = cv2.resize(plot_img, (width, height))
+
+    # Remove the temporary file
+    os.remove(temp_filename)
+
+    return plot_img
 
 def plot_histograms(hist1, hist2):
     """
@@ -163,7 +191,28 @@ def show_translucent_mask(image, labels, mask_labels):
     cv2.waitKey(0)  # short delay to update window
     cv2.destroyAllWindows()
 
-def draw_mask(frame, boxes, masks, class_names):
+def draw_mask(frame, boxes=None, masks=None, class_names=None, color_mask=(255, 105, 180)):
+    
+    # Converti in liste se non lo sono
+    if not isinstance(boxes, (list, np.ndarray)):
+        boxes = [boxes]
+    elif isinstance(boxes, (list, np.ndarray)) and not all(isinstance(b, (list, np.ndarray)) for b in boxes):
+        boxes = [boxes]
+    if not isinstance(masks, (list, np.ndarray)):
+        masks = [masks]
+    elif masks.ndim == 2:
+        masks = [masks]
+    if not isinstance(class_names, (list, np.ndarray)):
+        class_names = [class_names]
+    
+    # Trova la lunghezza massima
+    max_len = max(len(boxes), len(masks), len(class_names))
+    
+    # Normalizza le liste alla stessa lunghezza
+    boxes.extend([None] * (max_len - len(boxes)))
+    masks.extend([None] * (max_len - len(masks)))
+    class_names.extend([None] * (max_len - len(class_names)))
+
     for box, mask, class_name in zip(boxes, masks, class_names):
 
         #Check if the mask is valid
@@ -177,7 +226,7 @@ def draw_mask(frame, boxes, masks, class_names):
 
             # Create a pink overlay with the same shape as the frame
             pink_overlay = np.zeros_like(frame, dtype=np.uint8)
-            pink_overlay[:] = (255, 105, 180)  # Pink in BGR
+            pink_overlay[:] = color_mask# Pink in BGR
 
             # Apply the translucent pink overlay only on the masked area
             frame = np.where(boolean_mask[:, :, None], cv2.addWeighted(frame, 0.5, pink_overlay, 0.5, 0), frame)
@@ -185,7 +234,7 @@ def draw_mask(frame, boxes, masks, class_names):
         #Check if the bounding box is valid
         if box is not None:
             # Draw the bounding box in blue
-            x1, y1, x2, y2 = box
+            x1, y1, x2, y2 = map(int, box) 
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
         # Check if the name is valid
@@ -234,11 +283,12 @@ def find_centroid(mask):
         
     return centroid
 
-def resize(image, box, mask, target_pixels):
+def resize(image, box, target_pixels, mask=None):
     im_x, im_y = image.shape[:2]  # Shape of the image (height, width)
 
     # Resize the mask to match the image dimensions
-    mask = cv2.resize(mask, (im_y, im_x), interpolation=cv2.INTER_NEAREST)
+    if mask is not None:
+        mask = cv2.resize(mask, (im_y, im_x), interpolation=cv2.INTER_NEAREST)
 
     x1, y1, x2, y2 = box
     x1 = max(0,int(x1-(x2-x1)*0.1))
@@ -248,19 +298,24 @@ def resize(image, box, mask, target_pixels):
 
     # Crop image and mask to get the segmented ROI
     bounded_image = image[y1:y2, x1:x2] # Cut the region of interest from the image
-    bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
+    if mask is not None:
+        bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
 
     original_pixels = (x2-x1) * (y2-y1) # Get the dimensions of the original image
     scaling_factor = (target_pixels / original_pixels) ** 0.5  # Calculate the scaling factor to reach the target pixel count  
+    
     new_width = int((x2-x1) * scaling_factor)
     new_height = int((y2-y1) * scaling_factor)
     
     # Perform resizing
     resized_image = cv2.resize(bounded_image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
-    # Resize the mask       
-    resized_mask = cv2.resize(bounded_mask, (new_width, new_height),  interpolation=cv2.INTER_NEAREST)  # Resize mask to image dimensions
-
+    # Resize the mask 
+    if mask is not None:      
+        resized_mask = cv2.resize(bounded_mask, (new_width, new_height),  interpolation=cv2.INTER_NEAREST)  # Resize mask to image dimensions
+    else: 
+        resized_mask = None
+   
     '''# Debug print the scaling factor
     print(f"Scaling factor: {scaling_factor:.4f}")
     
@@ -275,4 +330,6 @@ def resize(image, box, mask, target_pixels):
     cv2.destroyAllWindows()'''
 
     return resized_image, resized_mask
+
+
   

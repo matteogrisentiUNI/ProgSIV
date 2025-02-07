@@ -2,13 +2,12 @@ import cv2
 import numpy as np
 import os
 
-def mask_motion_estimation(previus_frame, next_frame, mask=None, output_folder=None):
+def mask_motion_estimation(previus_frame, next_frame, mask=None):
     """
     Parameters:
         previus_frame: first frame
         next_frame: second frame
         mask: a binary mask of the first frame containing the object to track
-        output_folder: folder for debug images
     Returns:
         good_previus_poi: the good point of interest in the first frame
         good_next_poi: the good point of interest in the second frame
@@ -69,19 +68,6 @@ def mask_motion_estimation(previus_frame, next_frame, mask=None, output_folder=N
     if A is None:
         raise ValueError("motion estimation failed.")
 
-    if output_folder is not None:
-        # Apply the mask to extract the region of interest
-        roi = cv2.bitwise_and(previus_frame, previus_frame, mask=mask)
-        roi_path = os.path.join(output_folder, "ROI.jpg")   
-        cv2.imwrite(roi_path, roi)
-
-        # Draw points of interest on the frames for visualization
-        previus_frame_points = previus_frame.copy()
-        for point in previus_poi:
-            x, y = point.ravel()
-            cv2.circle(previus_frame_points, (int(x), int(y)), 5, (255, 0, 0), -1)
-        previus_frame_points_path = os.path.join(output_folder, "frame1-points.jpg")
-        cv2.imwrite(previus_frame_points_path, previus_frame_points)
     
     return good_previus_poi, good_next_poi, A
 

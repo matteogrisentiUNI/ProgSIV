@@ -93,7 +93,7 @@ def contourns_extraction(mask, output_folder=False):
     return contours
 
 # Extract the contourns from an image and a mask
-def histogram_extraction(image, mask, output_folder=False):
+def histogram_extraction(image, mask ):
    
     log = "\tHISTOGRAM EXTRACTION "
 
@@ -132,22 +132,6 @@ def histogram_extraction(image, mask, output_folder=False):
         # Normalize histograms for better comparability
         #for color in color_histogram:               
         #    color_histogram[color] = color_histogram[color] / color_histogram[color].sum()
-
-
-        if output_folder:                   # Plot and save the histograms
-            plt.figure(figsize=(10, 6))
-            plt.title("Color Histogram ")
-            plt.xlabel("Pixel Intensity")
-            plt.ylabel("Normalized Frequency")
-            plt.plot(color_histogram["blue"], color="blue", label="Blue")
-            plt.plot(color_histogram["green"], color="green", label="Green")
-            plt.plot(color_histogram["red"], color="red", label="Red")
-            plt.legend()
-            histogram_path = os.path.join(output_folder, "5_Color_Histogram.png")
-            plt.savefig(histogram_path)
-            plt.close()
-
-        #print(log, "OK ")
 
     except ValueError as err:
         print(log, "ERROR \n\t ", err)

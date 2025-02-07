@@ -197,7 +197,7 @@ def process_contour(contour, distance_threshold=15):
                         # Remove from the original contour all the points that connect the two points along the clockwise direction
                         contour = np.delete(contour, range(i + 1, index), axis=0)
                     else:
-                        #print(f"Connecting Point {i} and Point {index}, removing intermediate points anticlockwise.")
+                        # print(f"Connecting Point {i} and Point {index}, removing intermediate points anticlockwise.{contour}")
                         # Remove from the original contour all the points that connect the two points along the anticlockwise direction
                         contour = np.delete(contour, range(index + 1, n), axis=0)
                         contour = np.delete(contour, range(0, i), axis=0)
@@ -613,18 +613,18 @@ def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None):
     # --- SLIC Segmentation ---
     slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
     #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
-    '''# show results
+    # show results
     cv2.imshow("Original", cropped_image)
     cv2.imshow("SLIC Segmentation", slic_result)
     cv2.imshow("SLIC Mask", slic_mask)
     cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
+    cv2.destroyAllWindows()
 
     # --- Region Refinement ---
     final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance)
     #print("Region Refinement Completed, final number of labels: ", len(np.unique(final_labels)))
     # show the final labels
-    #utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
+    utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
 
     # --- Final Visualization ---
     mask = create_mask(slic_labels, final_labels)
