@@ -4,7 +4,7 @@ import numpy as np
 import random
 import os
 
-def draw_histogtams(hist, height, width):
+def draw_histogram(hist, height, width):
     # Plot a instogram on a graph
     plt.figure(figsize=(width / 100, height / 100))
     plt.title("Color Histogram ")

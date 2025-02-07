@@ -338,11 +338,13 @@ def debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame,
     cv2.destroyAllWindows()
 
 def debugPrintSegmentation(blurred, predicted_histogram, mask, output_folder=None):
-     
-    histogram_img = utils.draw_histogtams(predicted_histogram, blurred.shape[0], blurred.shape[1])
-    combined_image = np.hstack((blurred, histogram_img))
 
-    cv2.imshow("Blured Frame & Histogram", combined_image)
+    # overlay the mask to the image as a translucent layer
+    masked_image = utils.draw_mask(blurred, masks=mask)
+    histogram_img = utils.draw_histogram(predicted_histogram, blurred.shape[0], blurred.shape[1])
+    combined_image = np.hstack((masked_image, histogram_img))
+
+    cv2.imshow("Masked Frame & Histogram", combined_image)
     if output_folder is not None:        
         combined_image_path = os.path.join(output_folder, "6_1_Segmentation_PreProcessing.jpg")
         cv2.imwrite(combined_image_path, combined_image)

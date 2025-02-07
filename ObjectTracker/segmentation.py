@@ -194,13 +194,21 @@ def process_contour(contour, distance_threshold=15):
                     #print(f"Connecting Point {i} and Point {index}, removing intermediate points.")
                     if direction:
                         #print(f"Connecting Point {i} and Point {index}, removing intermediate points clockwise.")
-                        # Remove from the original contour all the points that connect the two points along the clockwise direction
-                        contour = np.delete(contour, range(i + 1, index), axis=0)
+                        # Remove points clockwise between `i` and `index`
+                        if index > i:
+                            contour = np.delete(contour, range(i + 1, index), axis=0)
+                        else:
+                            contour = np.delete(contour, range(i + 1, len(contour)), axis=0)  # From `i+1` to the end (including n)
+                            contour = np.delete(contour, range(0, index), axis=0)            # From start to `index`
                     else:
-                        # print(f"Connecting Point {i} and Point {index}, removing intermediate points anticlockwise.{contour}")
-                        # Remove from the original contour all the points that connect the two points along the anticlockwise direction
-                        contour = np.delete(contour, range(index + 1, n), axis=0)
-                        contour = np.delete(contour, range(0, i), axis=0)
+                        #print(f"Connecting Point {i} and Point {index}, removing intermediate points anticlockwise.")
+                        # Remove points anticlockwise between `i` and `index`
+                        if index < i:
+                            contour = np.delete(contour, range(index + 1, i), axis=0)
+                        else:
+                            contour = np.delete(contour, range(index + 1, len(contour)), axis=0)  # From `index+1` to the end (including n)
+                            contour = np.delete(contour, range(0, i), axis=0)                    # From start to `i`
+
                     n = len(contour)
                     #print(f"New number of points in the contour: {n}")
                     break
@@ -387,14 +395,14 @@ def create_mask(labels, mask_labels):
         cv2.waitKey(0)
         cv2.destroyAllWindows()'''
         processed_contour = process_contour(max_contour)
-        # Get bounding box of the processed contour
-        x, y, w, h = cv2.boundingRect(processed_contour)
         # Create a new black image of the size of the bounding box
         mask = np.zeros(union_mask.shape, dtype=np.uint8)
         # Draw the processed contour on the black image
         cv2.drawContours(mask, [processed_contour], 0, 255, -1)
-        # Crop the union mask to the bounding box
-        mask = mask[y:y+h, x:x+w]
+        '''# show the final mask
+        cv2.imshow("Mask", mask)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
     return mask
 
 def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=cv2.ximgproc.SLIC, compactness=5):
@@ -601,22 +609,20 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15):
             #plot_histograms(pred_hist, current_histogram)
             #show_translucent_mask(image, initial_labels, final_labels)
             debug['underflow_rejected'] += 1
-    #utils.plot_histograms(pred_hist, current_histogram)
+    utils.plot_histograms(pred_hist, current_histogram)
     #print("Debug info:", debug)
     return final_labels
 
 
 # --- Main Function ---
 def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None):
-    print("Image Shape: ", cropped_image.shape)
+    #print("Image Shape: ", cropped_image.shape)
 
     # --- SLIC Segmentation ---
     slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
     #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
     # show results
-    cv2.imshow("Original", cropped_image)
     cv2.imshow("SLIC Segmentation", slic_result)
-    cv2.imshow("SLIC Mask", slic_mask)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
