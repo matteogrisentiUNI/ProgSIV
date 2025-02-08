@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 
-def mask_motion_estimation(previus_frame, next_frame, mask=None):
+def mask_motion_estimation(previus_frame, next_frame, mask):
     """
     Parameters:
         previus_frame: first frame
@@ -21,14 +21,16 @@ def mask_motion_estimation(previus_frame, next_frame, mask=None):
 
     if mask is not None: 
         if len(mask.shape) == 2 and len(previus_frame.shape) == 3:  # we have to add a dimension becouse the image has 3 dimension (width, hight, and color dimesnion)
-            mask = np.expand_dims(mask, axis=-1)             # the mask has only two dimension width and height, so for compability we have to add a third dimension
+            mask = np.expand_dims(mask, axis=-1)                    # the mask has only two dimension width and height, so for compability we have to add a third dimension
 
         if mask.shape[:2] != previus_frame.shape[:2]:
             print("\tResizing mask to match image dimensions.")
             mask = cv2.resize(mask, (previus_frame.shape[1], previus_frame.shape[0] ), interpolation=cv2.INTER_NEAREST)
 
         if mask.shape[:2] != previus_frame.shape[:2]:              # Validate dimensions
-            raise ValueError("\tError: The mask dimensions still do not match the image dimensions.", mask.shape, image.shape)
+            raise ValueError("\tError: The mask dimensions still do not match the image dimensions.", mask.shape, previus_frame.shape)
+    else:
+        raise ValueError("None mask founded")
 
     # Shi-Tomasi Corner Detection
     if len(previus_frame) == 2 or previus_frame.shape[2] == 1:          # Check if the frame is already grayscale (single channel)
@@ -40,7 +42,9 @@ def mask_motion_estimation(previus_frame, next_frame, mask=None):
     else: next_frame_gray = cv2.cvtColor(next_frame, cv2.COLOR_BGR2GRAY)
    
     previus_poi = cv2.goodFeaturesToTrack(previus_frame_gray, maxCorners=200, qualityLevel=0.3, minDistance=7, mask=mask, blockSize=7)
-
+    if previus_poi is None:
+        raise ValueError("No Point of Interest Detected.") 
+    
     # Parameters for Lucas-Kanade Optical Flow
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 

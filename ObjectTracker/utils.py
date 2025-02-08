@@ -284,16 +284,14 @@ def find_centroid(mask):
         
     return centroid
 
-def resize(image, box, target_pixels, mask=None):
-    im_x, im_y = image.shape[:2]  # Shape of the image (height, width)
+def resize(image, box, target_pixels, A , mask=None):
+    im_y, im_x = image.shape[:2]  # Shape of the image (height, width)
+    #print('BOX', box[0], box[1], box[2], box[3])
+    #print('IMAGE: ', im_x, im_y)
 
     # Resize the mask to match the image dimensions
     if mask is not None:
-        mask = cv2.resize(mask, (im_y, im_x), interpolation=cv2.INTER_NEAREST)
-
-    x1, y1, x2, y2 = map(int, box) 
-    test_img = image.copy()
-    cv2.rectangle(test_img, (x1, y1), (x2, y2), (255, 0, 0), 1)
+        mask = cv2.resize(mask, (im_x, im_y), interpolation=cv2.INTER_NEAREST)
 
     # Calcola il centro del box
     cx = (box[0] + box[2]) // 2
@@ -303,42 +301,44 @@ def resize(image, box, target_pixels, mask=None):
     w = box[2] - box[0]
     h = box[3] - box[1]
 
-    motion_scaling_factor = 1.5
+    motion_scaling_factor = compute_motion_scaling_factor(A)
+    #print('MOTION SCAL', motion_scaling_factor, type(motion_scaling_factor))
 
-    # Raddoppia larghezza e altezza mantenendo il centro fisso
+    # Ingrandisci il Box in base al moto
     new_w = w * motion_scaling_factor
     new_h = h * motion_scaling_factor
 
     # Calcola i nuovi estremi del box
-    x1 = int(cx - new_w // 2)
-    y1 = int(cy - new_h // 2)
-    x2 = int(cx + new_w // 2)
-    y2 = int(cy + new_h // 2)
+    x1 = max(0, cx - new_w // 2)
+    y1 = max(0, cy - new_h // 2)
+    x2 = min(im_x, cx + new_w // 2)
+    y2 = min(im_y, cy + new_h // 2)
+    
+    x1 = int(x1); y1 = int(y1); x2 = int(x2); y2 = int(y2)
+    #print('BOX', x1, y1, x2, y2, type(x1), type(x2), type(y1), type(y2))
 
     resized_box = np.array([x1, y1, x2, y2])
-
-    '''
-    cv2.rectangle(test_img, (x1, y1), (x2, y2), (255, 0, 0), 2)
-    cv2.imshow("Resized Box", test_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
 
     # Crop image and mask to get the segmented ROI
     bounded_image = image[y1:y2, x1:x2] # Cut the region of interest from the image
     if mask is not None:
         bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
 
-    original_pixels = (x2-x1) * (y2-y1)                         # Get the dimensions of the original image
+    original_pixels = abs((x2-x1) * (y2-y1))                          # Get the dimensions of the original image
     pixel_scaling_factor = (target_pixels / original_pixels) ** 0.5   # Calculate the scaling factor to reach the target pixel count  
     
     new_width = int((x2-x1) * pixel_scaling_factor)
     new_height = int((y2-y1) * pixel_scaling_factor)
     
     # Perform resizing
+    if bounded_image.size == 0:
+        raise ValueError("Image to resize is empty")
     resized_image = cv2.resize(bounded_image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
     # Resize the mask 
     if mask is not None:      
+        if bounded_mask.size == 0:
+            raise ValueError("Mask to resize is empty")
         resized_mask = cv2.resize(bounded_mask, (new_width, new_height),  interpolation=cv2.INTER_NEAREST)  # Resize mask to image dimensions
     else: 
         resized_mask = None
@@ -377,6 +377,33 @@ def resize_mask_with_padding(mask, box, target_height, target_width):
     padded_mask[y1:y2, x1:x2] = resized_mask
 
     return padded_mask
+
+def compute_motion_scaling_factor(A, base_scale=1.5, min_scale=1.0, max_scale=2.0):
+    """
+    Calcola il motion scaling factor basato sulla matrice di trasformazione affine.
+    
+    :param A: Matrice affine (2x3) numpy array
+    :param base_scale: Fattore base di scaling
+    :param min_scale: Valore minimo di scaling
+    :param max_scale: Valore massimo di scaling
+    :return: Motion scaling factor adattivo
+    """
+    if A.shape != (2, 3):
+        raise ValueError("The matrix should be 2x3")
+
+    # Estrai i coefficienti di scala e shear
+    a, b, tx = A[0]
+    c, d, ty = A[1]
+
+    # Calcola il fattore di scala basato sulla norma euclidea
+    S_x = np.sqrt(a**2 + c**2)
+    S_y = np.sqrt(b**2 + d**2)
+    motion_scaling_factor = (S_x + S_y) / 2  # Media tra le due scale
+
+    # Normalizza e scala nel range desiderato
+    motion_scaling_factor = np.clip(motion_scaling_factor * base_scale, min_scale, max_scale)
+
+    return motion_scaling_factor
 
 def shrink_box_to_mask(resized_box, mask, threshold=5):
 

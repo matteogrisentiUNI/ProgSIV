@@ -86,7 +86,7 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
 
     while cap.isOpened():
         #Discrete Flow of the Video
-        print("Premi 'n' per il prossimo frame")
+        print("FRAME N.", frame_count)
         #cv2.waitKey(0)
         cv2.destroyAllWindows()
         
@@ -102,8 +102,11 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
             break
         
         # TRUCK OBJECT
-        next_mask, next_box = trucking(previus_frame, mask, box, next_frame, output_folder=output_folder, debugPrint=debugPrint)
-
+        #if frame_count >= 180:
+        #    next_mask, next_box = trucking(previus_frame, mask, box, next_frame, output_folder=output_folder, debugPrint=True)
+        #else: 
+        next_mask, next_box = trucking(previus_frame, mask, box, next_frame, output_folder=output_folder, debugPrint=True)
+        
         # Save next frame with bounding box an mask in the output video
         if saveVideo:
             output_frame = utils.draw_mask(next_frame, next_box, next_mask, object_detected, color_mask=(255, 0, 0))
@@ -173,8 +176,8 @@ def trucking(previus_frame, previus_mask, previus_box, next_frame, output_folder
 # - CROP FRAME
     print('- CROP FRAME')# Resize the frame and the mask
     try:
-        cropped_previus_frame, resized_mask, _ , _ = utils.resize(previus_frame, previus_box, 150000, mask=previus_mask)
-        cropped_next_frame, _ , resized_box, scaling_factors = utils.resize(next_frame, next_box, 150000)
+        cropped_previus_frame, resized_mask, _ , _ = utils.resize(previus_frame, previus_box, 150000, A, mask=previus_mask)
+        cropped_next_frame, _ , resized_box, scaling_factors = utils.resize(next_frame, next_box, 150000, A)
         
     except Exception as e:
         print(f"\tERROR: {e}")
@@ -349,9 +352,9 @@ def debugPrintSegmentation(blurred, mask, output_folder=None):
 
 if __name__ == "__main__":
 
-    video_path = 'Demo/Video/Ship.mp4'
-    output_folder = os.path.join('test/Global/Ship')
-    object_detected = 'boat'
+    video_path = 'Demo/Video/Car6.mp4'
+    output_folder = os.path.join('test/Global/Car6')
+    object_detected = 'car'
 
     test_discreto_video(video_path, object_detected, output_folder=output_folder,  saveVideo=True, debugPrint=True)
 
