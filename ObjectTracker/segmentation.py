@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 from collections import defaultdict
 from collections import defaultdict
 from scipy.ndimage import gaussian_filter1d
@@ -537,7 +538,7 @@ def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=
 
     return merged_labels, merged_mask, merged_result, cluster_info
 
-def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15):
+def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, debugPrint=False):
     """
     Implements histogram-based superpixel selection
     
@@ -609,36 +610,51 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15):
             #plot_histograms(pred_hist, current_histogram)
             #show_translucent_mask(image, initial_labels, final_labels)
             debug['underflow_rejected'] += 1
-    utils.plot_histograms(pred_hist, current_histogram)
+    
+    graph = None
+
+    if debugPrint:
+        graph = utils.plot_histograms(pred_hist, current_histogram, 800, 600)
+   
     #print("Debug info:", debug)
-    return final_labels
+    return final_labels, graph
 
 
 # --- Main Function ---
-def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None):
+def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None, debugPrint=False):
     #print("Image Shape: ", cropped_image.shape)
 
     # --- SLIC Segmentation ---
     slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
     #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
     # show results
-    cv2.imshow("SLIC Segmentation", slic_result)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if debugPrint:
+        cv2.imshow("SLIC Segmentation", slic_result)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        # save results
+        if output_folder is not None:
+            slic_result_path = os.path.join(output_folder, "5_1_Segmentation_SLIC.jpg")
+            cv2.imwrite(slic_result_path, slic_result)
+
 
     # --- Region Refinement ---
-    final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance)
+    final_labels, graph = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance, debugPrint=debugPrint)
     #print("Region Refinement Completed, final number of labels: ", len(np.unique(final_labels)))
     # show the final labels
-    utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
+    # utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
+    if debugPrint:
+        cv2.imshow("Histograms", graph)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        # save results
+        if output_folder is not None:
+            graph_path = os.path.join(output_folder, "5_2_Segmentation_Histograms.jpg")
+            cv2.imwrite(graph_path, graph)
 
     # --- Final Visualization ---
     mask = create_mask(slic_labels, final_labels)
 
-    print("Final Mask Shape: ", mask.shape)
-
-    if output_folder is not None:
-        # Save the final mask
-        cv2.imwrite(f"{output_folder}/final_mask.png", mask)
+    #print("Final Mask Shape: ", mask.shape)
 
     return mask

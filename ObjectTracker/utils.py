@@ -31,7 +31,7 @@ def draw_histogram(hist, height, width):
 
     return plot_img
 
-def plot_histograms(hist1, hist2):
+def plot_histograms(hist1, hist2, width, height):
     """
     Plot two histograms on the same graph.
 
@@ -67,19 +67,20 @@ def plot_histograms(hist1, hist2):
     plt.legend()
 
     # Save the plot as an image to show in OpenCV
-    plt.savefig('histogram_plot.png')
+    temp_filename = 'histogram_plot.png'
+    plt.savefig(temp_filename)
     plt.close()
 
     # Load the saved plot as an image
     plot_img = cv2.imread('histogram_plot.png')
 
-    # Resize for better display
-    plot_img = cv2.resize(plot_img, (800, 600))
+     # Resize for better display
+    plot_img = cv2.resize(plot_img, (width, height))
 
-    # Display the image using OpenCV
-    cv2.imshow('Histograms', plot_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Remove the temporary file
+    os.remove(temp_filename)
+
+    return plot_img
 
 def visualize_superpixel_histogram(image, labels, superpixel_id, bins=256):
     """
@@ -290,22 +291,48 @@ def resize(image, box, target_pixels, mask=None):
     if mask is not None:
         mask = cv2.resize(mask, (im_y, im_x), interpolation=cv2.INTER_NEAREST)
 
-    x1, y1, x2, y2 = box
-    x1 = max(0,int(x1-(x2-x1)*0.1))
-    x2 = min(im_y,int(x2+(x2-x1)*0.1))
-    y1 = max(0, int(y1-(y2-y1)*0.1))
-    y2 = min(im_x,int(y2+(y2-y1)*0.1))
+    x1, y1, x2, y2 = map(int, box) 
+    test_img = image.copy()
+    cv2.rectangle(test_img, (x1, y1), (x2, y2), (255, 0, 0), 1)
+
+    # Calcola il centro del box
+    cx = (box[0] + box[2]) // 2
+    cy = (box[1] + box[3]) // 2
+
+    # Calcola larghezza e altezza attuali
+    w = box[2] - box[0]
+    h = box[3] - box[1]
+
+    motion_scaling_factor = 1.5
+
+    # Raddoppia larghezza e altezza mantenendo il centro fisso
+    new_w = w * motion_scaling_factor
+    new_h = h * motion_scaling_factor
+
+    # Calcola i nuovi estremi del box
+    x1 = int(cx - new_w // 2)
+    y1 = int(cy - new_h // 2)
+    x2 = int(cx + new_w // 2)
+    y2 = int(cy + new_h // 2)
+
+    resized_box = np.array([x1, y1, x2, y2])
+
+    '''
+    cv2.rectangle(test_img, (x1, y1), (x2, y2), (255, 0, 0), 2)
+    cv2.imshow("Resized Box", test_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()'''
 
     # Crop image and mask to get the segmented ROI
     bounded_image = image[y1:y2, x1:x2] # Cut the region of interest from the image
     if mask is not None:
         bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
 
-    original_pixels = (x2-x1) * (y2-y1) # Get the dimensions of the original image
-    scaling_factor = (target_pixels / original_pixels) ** 0.5  # Calculate the scaling factor to reach the target pixel count  
+    original_pixels = (x2-x1) * (y2-y1)                         # Get the dimensions of the original image
+    pixel_scaling_factor = (target_pixels / original_pixels) ** 0.5   # Calculate the scaling factor to reach the target pixel count  
     
-    new_width = int((x2-x1) * scaling_factor)
-    new_height = int((y2-y1) * scaling_factor)
+    new_width = int((x2-x1) * pixel_scaling_factor)
+    new_height = int((y2-y1) * pixel_scaling_factor)
     
     # Perform resizing
     resized_image = cv2.resize(bounded_image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
@@ -316,11 +343,11 @@ def resize(image, box, target_pixels, mask=None):
     else: 
         resized_mask = None
    
-    '''# Debug print the scaling factor
-    print(f"Scaling factor: {scaling_factor:.4f}")
+    # Debug print the scaling factor
+    # print(f"Scaling factor: {pixel_scaling_factor:.4f}")
     
     # Show the original and resized images
-    cv2.imshow("Original Image", image)
+    '''cv2.imshow("Original Image", image)
     cv2.imshow("Original Mask", mask)
     cv2.imshow("Bounded Image", bounded_image)
     cv2.imshow("Resized Image", resized_image)
@@ -329,7 +356,51 @@ def resize(image, box, target_pixels, mask=None):
     cv2.waitKey(0)
     cv2.destroyAllWindows()'''
 
-    return resized_image, resized_mask
+    return resized_image, resized_mask, resized_box, pixel_scaling_factor
 
+def resize_mask_with_padding(mask, box, target_height, target_width):
+    '''
+    Resize the final mask in order to be able to applay it correctly on the original frame
+    '''    
+    # Estrai le coordinate del box
+    x1, y1, x2, y2 = map(int, box)
+    box_width = x2 - x1
+    box_height = y2 - y1
 
+    # Ridimensiona la maschera alle dimensioni del box
+    resized_mask = cv2.resize(mask, (box_width, box_height))
+
+    # Crea un'immagine completamente nera della dimensione del frame
+    padded_mask = np.zeros((target_height, target_width), dtype=np.uint8)
+
+    # Inserisci la maschera all'interno del box
+    padded_mask[y1:y2, x1:x2] = resized_mask
+
+    return padded_mask
+
+def shrink_box_to_mask(resized_box, mask, threshold=5):
+
+    # Trova i contorni della maschera per determinare l'area occupata
+    mask_indices = np.argwhere(mask > 0)  # Trova i pixel non neri
+    if mask_indices.size == 0:
+        return resized_box  # Se la maschera è vuota, mantieni il box originale
+    
+    # Calcola il centro del box attuale
+    centroid = find_centroid(mask)
+
+    # Trova i limiti della maschera
+    min_y, min_x = mask_indices.min(axis=0)
+    max_y, max_x = mask_indices.max(axis=0)
+
+    # Calcola larghezza e altezza della maschera, con un margine di sicurezza (threshold)
+    width = (max_x - min_x) + 2 * threshold
+    height = (max_y - min_y) + 2 * threshold
+
+    # Definisci il nuovo bounding box
+    x1 = max(centroid[0] - width // 2, 0)
+    x2 = min(centroid[0] + width // 2, mask.shape[1])
+    y1 = max(centroid[1] - height // 2, 0)
+    y2 = min(centroid[1] + height // 2, mask.shape[0])
+
+    return np.array([ int(x1), int(y1), int(x2), int(y2) ])
   

@@ -26,8 +26,7 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
     frame_count = 0
 
     ret, previus_frame = cap.read()
-    ret, next_frame = cap.read()
-    frame_count = 2
+    frame_count = 1
 
     cpu_before = psutil.cpu_percent(interval=None)
     memory_before = psutil.virtual_memory().percent
@@ -68,122 +67,61 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
         
     mask = refined_mask
 
-# - MOTION
-    print('- MOTION ESTIMATION')
-    try:
-        good_previus_poi, good_next_poi, A = mask_motion_estimation( previus_frame, next_frame, mask=mask )
-    except Exception as e:
-        print(f"\tERROR: {e}")
-        return
-    
-    # translate the box
-    box_r = box.reshape(-1, 1, 2)
-    box_t = cv2.transform(box_r, A).reshape(4)
-    
-    # Print for debug
-    if debugPrint: 
-       debugPrintMotionEstimation(previus_frame, good_previus_poi, good_next_poi, A, box, box_t, frame_width, frame_height, mask, output_folder=output_folder)
 
-
-# - CROP FRAME
-    print('- CROP FRAME')# Resize the frame and the mask
-    try:
-        cropped_previus_frame, resized_mask = utils.resize(previus_frame, box, 150000, mask=mask)
-        cropped_next_frame, _ = utils.resize(next_frame, box_t, 150000)
-    except Exception as e:
-        print(f"\tERROR: {e}")
-        return
-    
-    # Print for debug
-    if debugPrint:
-        debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame, output_folder=output_folder)
-
-
-# - SEGMENTATION
-    print('- SEGMENTATION')# Resize the frame and the mask
-    
-    # Apply Gaussian blur
-    blurred_previus_frame = cv2.GaussianBlur(cropped_previus_frame, (3, 3), sigmaX=0)
-    blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
-
-    # Extract the histogram of the ROI
-    predicted_histogram = feature_extraction.histogram_extraction(blurred_previus_frame, resized_mask)
-
-    # Extract the region of interest
-    next_mask = segmentation.segmentation(blurred_next_frame, predicted_histogram)
-   
-    # Print for debug
-    if debugPrint:
-        debugPrintSegmentation(blurred_next_frame, predicted_histogram, next_mask, output_folder=output_folder)
-
-
-
-# Save next frame with bounding box an mask in the output video
+# Save the Output 
     if saveVideo:
-        output_frame = utils.draw_mask(next_frame, box_t, mask, object_detected, color_mask=(255, 0, 0))
-        out.write(output_frame)
-    
- 
-    previus_frame = cv2.cvtColor(next_frame, cv2.COLOR_BGR2GRAY)
-    previus_poi = good_next_poi.reshape(-1, 1, 2)
+        output_frame = utils.draw_mask(previus_frame, box, mask, object_detected)
+        resized_output_frame = cv2.resize(output_frame, (frame_width, frame_height), interpolation=cv2.INTER_AREA)
+        out.write(resized_output_frame)
+
 
     cpu_after = psutil.cpu_percent(interval=None)
     memory_after = psutil.virtual_memory().percent
     
     cpu_usage_list.append((cpu_before + cpu_after) / 2)
     memory_usage_list.append((memory_before + memory_after) / 2)
-    
-    cap.release()
-    if saveVideo:
-        out.release()
-    cv2.destroyAllWindows()
 
-    return 
+    # Activate all the debug print ( A LOT !! )
+    debugPrint = False
 
     while cap.isOpened():
-        print("Premi 'n' per il prossimo frame o 'q' per uscire.")
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('q'):
-            break
-        elif key != ord('n'):
-            continue
+        #Discrete Flow of the Video
+        print("Premi 'n' per il prossimo frame")
+        #cv2.waitKey(0)
+        cv2.destroyAllWindows()
         
+        # Start counter for the performance
         frame_start_time = time.time()
         cpu_before = psutil.cpu_percent(interval=None)
         memory_before = psutil.virtual_memory().percent
 
-        ret, next_frame_color = cap.read()
+        # Take the next frame to analize
+        ret, next_frame = cap.read()
         if not ret:
             print("Video Ended")
             break
-
-        next_frame = cv2.cvtColor(next_frame_color, cv2.COLOR_BGR2GRAY)
-
-        try:
-            good_previus_poi, good_next_poi, A = motion_estimation(previus_frame, next_frame, previus_poi)
-        except Exception as e:
-            print(f"ERROR - motion estimation: {e}")
-            return
-
-        box = box.reshape(-1, 1, 2)
-        box = cv2.transform(box, A).reshape(-1, 4)
-        x1, y1, x2, y2 = box[0]
-
-        frame = next_frame_color.copy()
-        for new in good_next_poi:
-            a, b = new.ravel()
-            frame = cv2.circle(frame, (int(a), int(b)), 3, color_poi, -1)
-        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color_box, 2)
-
-        if saveVideo:
-            out.write(frame)
-        if showVideo:
-            resized_frame = cv2.resize(frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
-            cv2.imshow("Sparse Optical Flow", resized_frame)
-
-        previus_frame = next_frame
-        previus_poi = good_next_poi.reshape(-1, 1, 2)
         
+        # TRUCK OBJECT
+        next_mask, next_box = trucking(previus_frame, mask, box, next_frame, output_folder=output_folder, debugPrint=debugPrint)
+
+        # Save next frame with bounding box an mask in the output video
+        if saveVideo:
+            output_frame = utils.draw_mask(next_frame, next_box, next_mask, object_detected, color_mask=(255, 0, 0))
+            resized_output_frame = cv2.resize(output_frame, (frame_width, frame_height), interpolation=cv2.INTER_AREA)
+            
+            if debugPrint:
+                cv2.imshow('Final Frame', resized_output_frame)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+            out.write(resized_output_frame)
+    
+        # Update the variable for the next cycle 
+        previus_frame = next_frame
+        mask = next_mask
+        box = next_box
+
+        # Perfoormance Misure of the cingle cycle
         cpu_after = psutil.cpu_percent(interval=None)
         memory_after = psutil.virtual_memory().percent
         cpu_usage_list.append((cpu_before + cpu_after) / 2)
@@ -211,11 +149,81 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
     cv2.destroyAllWindows()
 
 
+
+# TRUCKING FUNCTION
+def trucking(previus_frame, previus_mask, previus_box, next_frame, output_folder=None, debugPrint=False):
+    
+# - MOTION
+    print('- MOTION ESTIMATION')
+    try:
+        good_previus_poi, good_next_poi, A = mask_motion_estimation( previus_frame, next_frame, mask=previus_mask )
+    except Exception as e:
+        print(f"\tERROR: {e}")
+        return
+    
+    # translate the box
+    box_r = previus_box.reshape(-1, 1, 2)
+    next_box = cv2.transform(box_r, A).reshape(4)
+
+    # Print for debug
+    if debugPrint: 
+       debugPrintMotionEstimation(previus_frame, good_previus_poi, good_next_poi, A, previus_box, next_box, output_folder=output_folder)
+
+
+# - CROP FRAME
+    print('- CROP FRAME')# Resize the frame and the mask
+    try:
+        cropped_previus_frame, resized_mask, _ , _ = utils.resize(previus_frame, previus_box, 150000, mask=previus_mask)
+        cropped_next_frame, _ , resized_box, scaling_factors = utils.resize(next_frame, next_box, 150000)
+        
+    except Exception as e:
+        print(f"\tERROR: {e}")
+        return
+    
+    # Print for debug
+    if debugPrint:
+        debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame, resized_box, next_box, next_frame, output_folder=output_folder)
+
+
+# - SEGMENTATION
+    print('- SEGMENTATION')# Resize the frame and the mask
+    
+    # Apply Gaussian blur
+    blurred_previus_frame = cv2.GaussianBlur(cropped_previus_frame, (3, 3), sigmaX=0)
+    blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
+
+    # Extract the histogram of the ROI
+    predicted_histogram = feature_extraction.histogram_extraction(blurred_previus_frame, resized_mask)
+
+    # Extract the region of interest
+    next_mask = segmentation.segmentation(blurred_next_frame, predicted_histogram, output_folder=output_folder, debugPrint=debugPrint)
+
+    # Print for debug
+    if debugPrint:
+        debugPrintSegmentation(blurred_next_frame, next_mask, output_folder=output_folder)
+
+#   RESCALING: we have to rescale the mask to the original frame dimension
+    # 1: Resize the mask to the origina pixel quantity
+    original_width = int(next_mask.shape[1] / scaling_factors)
+    original_height = int(next_mask.shape[0] / scaling_factors)
+    next_mask = cv2.resize(next_mask, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+
+    # 2: Rescale to the dimension of the resized_box
+    x1, y1, x2, y2 = resized_box
+    next_mask = cv2.resize(next_mask, ( int(y2-y1), int(x2-x1)), interpolation=cv2.INTER_NEAREST)
+
+    # 3: Adding black padding in order the mask match the dimension of the original frame
+    next_mask = utils.resize_mask_with_padding(next_mask, resized_box, next_frame.shape[0], next_frame.shape[1])
+    
+    # 4: shrink the box in order to be closer to the final mask
+    next_box = utils.shrink_box_to_mask(resized_box, next_mask, threshold=5)
+
+
+    return next_mask, next_box
+
+
 # DEBUG PRINT FUNCTIONS
 def debugPrintDetection(previus_frame, boxes, masks, frame_width, frame_height, output_folder=None):
-
-    print(output_folder)
-
     masked_previus_frame = utils.draw_mask(previus_frame, boxes, masks[0], object_detected)
     resized_masked_previus_frame = cv2.resize(masked_previus_frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
     
@@ -225,9 +233,7 @@ def debugPrintDetection(previus_frame, boxes, masks, frame_width, frame_height, 
         cv2.imwrite(processed_image_path, resized_masked_previus_frame)
     
     # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 def debugPrintMaskRefinement(refined_mask, box, previus_frame, frame_width, frame_height, output_folder=None):
@@ -241,37 +247,10 @@ def debugPrintMaskRefinement(refined_mask, box, previus_frame, frame_width, fram
         cv2.imwrite(processed_image_path, resized_masked_previus_frame)
     
     # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def debugPrintBoxResiz(box, box_resized, previus_frame, frame_width, frame_height, output_folder=None):
-    # Draw the original box and the resized box
-    previus_frame_br = previus_frame.copy()
-    
-    x1, y1, x2, y2 = map(int, box) 
-    cv2.rectangle(previus_frame_br, (x1, y1), (x2, y2), (255, 0, 0), 1)
-
-    x1_r, y1_r, x2_r, y2_r = map(int, box_resized) 
-    cv2.rectangle(previus_frame_br, (x1_r, y1_r), (x2_r, y2_r), (255, 0, 0), 3)
-
-    resized_previus_frame_br = cv2.resize(previus_frame_br, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
-
-    cv2.imshow("Resized Box", resized_previus_frame_br)
-
-    if output_folder is not None:        
-        previus_frame_br_path = os.path.join(output_folder, "3_ResizedBox.jpg")
-        cv2.imwrite(previus_frame_br_path, resized_previus_frame_br)
-
-    
-    # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
-    cv2.destroyAllWindows()
-
-def debugPrintMotionEstimation(previus_frame, previus_poi, next_poi, A, box, box_t, frame_width, frame_height, mask, output_folder=None):
+def debugPrintMotionEstimation(previus_frame, previus_poi, next_poi, A, box, box_t, output_folder=None):
     
     # Apply the mask to extract the region of interest
     # roi = cv2.bitwise_and(cropped_previus_frame, cropped_previus_frame, mask=mask)
@@ -307,53 +286,66 @@ def debugPrintMotionEstimation(previus_frame, previus_poi, next_poi, A, box, box
 
     x1_t, y1_t, x2_t, y2_t = map(int, box_t) 
     cv2.rectangle(frame_points, (x1_t, y1_t), (x2_t, y2_t), (0, 255, 0), 2, lineType=4)
-    
 
-    resized_frame_points = cv2.resize(frame_points, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
-
-    cv2.imshow("Motion Image", resized_frame_points)
+    cv2.imshow("Motion Image", frame_points)
     if output_folder is not None:        # Save the processed image
-        frame_points_path = os.path.join(output_folder, "4_MotionEstimation.jpg")
-        cv2.imwrite(frame_points_path, resized_frame_points)
+        frame_points_path = os.path.join(output_folder, "3_MotionEstimation.jpg")
+        cv2.imwrite(frame_points_path, frame_points)
     
     # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
-    cv2.destroyAllWindows()
+    cv2.waitKey(0)
+    cv2.destroyAllWindows() 
 
-def debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame, output_folder=None):
+def debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame, resized_box, box, frame, output_folder=None):
+    frame_width = 1000
+    frame_height = 600
+    
+    # Draw the original box and the resized box
+    frame_br = frame.copy()
+    x1, y1, x2, y2 = map(int, box) 
+    cv2.rectangle(frame_br, (x1, y1), (x2, y2), (255, 0, 0), 1)
+
+    x1_r, y1_r, x2_r, y2_r = map(int, resized_box) 
+    cv2.rectangle(frame_br, (x1_r, y1_r), (x2_r, y2_r), (255, 0, 0), 3)
+
     cropped_previus_frame_mask = utils.draw_mask(cropped_previus_frame, masks=resized_mask)
-    cropped_frames = np.vstack((cropped_previus_frame_mask, cropped_next_frame))
 
-    cv2.imshow("Cropped Frames", cropped_frames)
+    resized_frame_br = cv2.resize(frame_br, (frame_width//2, frame_height//2), interpolation=cv2.INTER_AREA)
+    
+    h, w = cropped_next_frame.shape[:2]          # Get the originale dimension 
+    aspect_ratio = int( w / h )                  # compute the ratio to manintain the same proporsion
+    cropped_previus_frame_mask = cv2.resize(cropped_previus_frame_mask, (int(frame_height//4)*aspect_ratio, frame_height//4), interpolation=cv2.INTER_AREA)
+    
+    h, w = cropped_next_frame.shape[:2]     # Get the originale dimension 
+    aspect_ratio = int(w / h )                   # compute the ratio to manintain the same proporsion
+    cropped_next_frame = cv2.resize(cropped_next_frame, (int(frame_height//4)*aspect_ratio, frame_height//4), interpolation=cv2.INTER_AREA)
+
+    cropped_frames = np.vstack((cropped_previus_frame_mask, cropped_next_frame))
+    final_image = np.hstack((resized_frame_br,cropped_frames))
+
+    cv2.imshow("Resize", final_image)
     if output_folder is not None:        
-        cropped_frames_path = os.path.join(output_folder, "5_CroppedFrames.jpg")
-        cv2.imwrite(cropped_frames_path, cropped_frames)
+        final_images_path = os.path.join(output_folder, "4_Resize&Crop.jpg")
+        cv2.imwrite(final_images_path, final_image)
     
     # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
+    cv2.waitKey(0) 
     cv2.destroyAllWindows()
 
-def debugPrintSegmentation(blurred, predicted_histogram, mask, output_folder=None):
+def debugPrintSegmentation(blurred, mask, output_folder=None):
 
     # overlay the mask to the image as a translucent layer
     masked_image = utils.draw_mask(blurred, masks=mask)
-    histogram_img = utils.draw_histogram(predicted_histogram, blurred.shape[0], blurred.shape[1])
-    combined_image = np.hstack((masked_image, histogram_img))
 
-    cv2.imshow("Masked Frame & Histogram", combined_image)
+    cv2.imshow("Masked Frame & Histogram", masked_image)
     if output_folder is not None:        
-        combined_image_path = os.path.join(output_folder, "6_1_Segmentation_PreProcessing.jpg")
-        cv2.imwrite(combined_image_path, combined_image)
+        combined_image_path = os.path.join(output_folder, "6_Segmentation.jpg")
+        cv2.imwrite(combined_image_path, masked_image)
     
-    # block the code in order to analyse the behavior frame to frame
-    while True:
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('w'): break
+    cv2.waitKey(0) 
     cv2.destroyAllWindows()
+
+
 
 if __name__ == "__main__":
 
