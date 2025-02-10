@@ -335,33 +335,6 @@ def resize_mask_with_padding(mask, box, target_height, target_width):
 
     return padded_mask
 
-def compute_motion_scaling_factor(A, base_scale=1.5, min_scale=1.0, max_scale=2.0):
-    """
-    Calcola il motion scaling factor basato sulla matrice di trasformazione affine.
-    
-    :param A: Matrice affine (2x3) numpy array
-    :param base_scale: Fattore base di scaling
-    :param min_scale: Valore minimo di scaling
-    :param max_scale: Valore massimo di scaling
-    :return: Motion scaling factor adattivo
-    """
-    if A.shape != (2, 3):
-        raise ValueError("The matrix should be 2x3")
-
-    # Estrai i coefficienti di scala e shear
-    a, b, tx = A[0]
-    c, d, ty = A[1]
-
-    # Calcola il fattore di scala basato sulla norma euclidea
-    S_x = np.sqrt(a**2 + c**2)
-    S_y = np.sqrt(b**2 + d**2)
-    motion_scaling_factor = (S_x + S_y) / 2  # Media tra le due scale
-
-    # Normalizza e scala nel range desiderato
-    motion_scaling_factor = np.clip(motion_scaling_factor * base_scale, min_scale, max_scale)
-
-    return motion_scaling_factor
-
 def shrink_box_to_mask(resized_box, mask, threshold=5):
 
     # Trova i contorni della maschera per determinare l'area occupata
@@ -432,3 +405,59 @@ def predict_bounding_box(image, box, affine_matrix, epsilon=0.5):
     new_box = np.array([x_min, y_min, x_max, y_max])  # Format: (x_min, y_min, x_max, y_max)
     
     return new_box
+
+def predict_bounding_box_2(image, box, A ):
+    im_y, im_x = image.shape[:2]  # Shape of the image (height, width)
+    #print('BOX', box[0], box[1], box[2], box[3])
+    #print('IMAGE: ', im_x, im_y)
+
+    cx = (box[0] + box[2]) // 2     # Compute the center of the Box
+    cy = (box[1] + box[3]) // 2
+
+    w = box[2] - box[0]             # Compute the original dimensions
+    h = box[3] - box[1]
+
+    motion_scaling_factor = compute_motion_scaling_factor(A)
+
+    new_w = w * motion_scaling_factor   # Grow the box based on the motion
+    new_h = h * motion_scaling_factor
+
+    x1 = max(0, cx - new_w // 2)        # Compute the new box coordinate
+    y1 = max(0, cy - new_h // 2)        # Ensure they are not out of the original image
+    x2 = min(im_x, cx + new_w // 2)
+    y2 = min(im_y, cy + new_h // 2)
+    
+    x1 = int(x1); y1 = int(y1); x2 = int(x2); y2 = int(y2)
+    
+    #print('BOX', x1, y1, x2, y2, type(x1), type(x2), type(y1), type(y2))
+    resized_box = np.array([x1, y1, x2, y2])
+   
+    return resized_box
+
+
+def compute_motion_scaling_factor(A, base_scale=1.5, min_scale=1, max_scale=2):
+    """
+    Calcola il motion scaling factor basato sulla matrice di trasformazione affine.
+    
+    :param A: Matrice affine (2x3) numpy array
+    :param base_scale: Fattore base di scaling
+    :param min_scale: Valore minimo di scaling
+    :param max_scale: Valore massimo di scaling
+    :return: Motion scaling factor adattivo
+    """
+    if A.shape != (2, 3):
+        raise ValueError("The matrix should be 2x3")
+
+    # Estrai i coefficienti di scala e shear
+    a, b, tx = A[0]
+    c, d, ty = A[1]
+
+    # Calcola il fattore di scala basato sulla norma euclidea
+    S_x = np.sqrt(a**2 + c**2)
+    S_y = np.sqrt(b**2 + d**2)
+    motion_scaling_factor = (S_x + S_y) / 2  # Media tra le due scale
+
+    # Normalizza e scala nel range desiderato
+    motion_scaling_factor = np.clip(motion_scaling_factor * base_scale, min_scale, max_scale)
+
+    return motion_scaling_factor
