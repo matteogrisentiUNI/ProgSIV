@@ -229,6 +229,234 @@ def smooth_contour(contour, sigma=1.0):
     contour[:, 1] = gaussian_filter1d(contour[:, 1], sigma=sigma)
     return contour
 
+'''def calculate_contour_descriptors(contour):
+    """
+    Calculate shape descriptors and curvature/edge features for a given contour.
+    """
+    if len(contour.shape) == 3:
+        contour = contour[:, 0, :]  # Flatten to Nx2
+
+    # Compute Moments
+    M = cv2.moments(contour)
+    if M["m00"] != 0:
+        centroid = (M["m10"] / M["m00"], M["m01"] / M["m00"])
+    else:
+        centroid = (0, 0)
+
+    # Compactness
+    area = cv2.contourArea(contour)
+    perimeter = cv2.arcLength(contour, True)
+    compactness = (perimeter ** 2) / (4 * np.pi * area) if area > 0 else 0
+
+    # Eccentricity
+    if len(contour) >= 5:  # Minimum 5 points needed to fit an ellipse
+        _, (major_axis, minor_axis), _ = cv2.fitEllipse(contour)
+        if major_axis < minor_axis:
+            major_axis, minor_axis = minor_axis, major_axis
+        eccentricity = np.sqrt(1 - (minor_axis ** 2 / major_axis ** 2))
+    else:
+        eccentricity = 0
+
+    # Convexity
+    hull = cv2.convexHull(contour)
+    hull_perimeter = cv2.arcLength(hull, True)
+    convexity = perimeter / hull_perimeter if hull_perimeter > 0 else 0
+
+    # Contour Curvature
+    curvature = []
+    k = 3
+    for i in range(len(contour)):
+        prev_point = contour[i - k]
+        curr_point = contour[i]
+        next_point = contour[(i + k) % len(contour)]
+
+        area = 0.5 * np.abs(
+            prev_point[0] * (curr_point[1] - next_point[1]) +
+            curr_point[0] * (next_point[1] - prev_point[1]) +
+            next_point[0] * (prev_point[1] - curr_point[1])
+        )
+        edge1 = np.linalg.norm(prev_point - curr_point)
+        edge2 = np.linalg.norm(curr_point - next_point)
+        edge3 = np.linalg.norm(next_point - prev_point)
+        curvature_value = (4 * area) / (edge1 * edge2 * edge3 + 1e-10)
+        curvature.append(curvature_value)
+
+    # Simplify the contour as a polygon, approximating corners as straight lines (epsilon=0.02*perimeter)
+    epsilon = 0.005 * perimeter
+    approx = cv2.approxPolyDP(contour, epsilon, True)
+    num_corners = len(approx)
+
+    # Get the number of curves (starting from a corner, count how many times does the curve change direction)
+    num_curves = 0
+    prev_angle = None
+    for i in range(len(approx)):
+        prev_point = approx[i - 1][0]
+        curr_point = approx[i][0]
+        next_point = approx[(i + 1) % len(approx)][0]
+
+        # Compute the angle between the edges
+        edge1 = prev_point - curr_point
+        edge2 = next_point - curr_point
+        angle = np.arccos(np.dot(edge1, edge2) / (np.linalg.norm(edge1) * np.linalg.norm(edge2) + 1e-10))
+        if prev_angle is not None:
+            if angle > prev_angle:
+                num_curves += 1
+        prev_angle = angle
+
+    # draw and show the white contour over black background
+    img = np.zeros((512, 512, 3), np.uint8)
+    cv2.drawContours(img, [approx], -1, (255, 255, 255), 3)
+    cv2.imshow('image', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    return {
+        "Centroid": centroid,
+        "Compactness": compactness,
+        "Eccentricity": eccentricity,
+        "Convexity": convexity,
+        "Contour Curvature": curvature,
+        "Number of Corners": num_corners,
+        "Number of Curves": num_curves,
+    }
+
+def descriptor_distance(desc1, desc2):
+    """
+    A simple distance metric between two descriptor dictionaries.
+    Adjust weights as needed.
+    """
+    cent_dist = np.linalg.norm(np.array(desc1["Centroid"]) - np.array(desc2["Centroid"]))
+    compact_diff = abs(desc1["Compactness"] - desc2["Compactness"])
+    ecc_diff = abs(desc1["Eccentricity"] - desc2["Eccentricity"])
+    convex_diff = abs(desc1["Convexity"] - desc2["Convexity"])
+    corners_diff = abs(desc1["Number of Corners"] - desc2["Number of Corners"])
+    curves_diff = abs(desc1["Number of Curves"] - desc2["Number of Curves"])
+    return cent_dist + compact_diff + ecc_diff + convex_diff + corners_diff + curves_diff
+
+def compute_superpixel_adjacency(labels):
+    """
+    Computes an adjacency dictionary for superpixels.
+    Ignores label -1.
+    """
+    unique_labels = [int(l) for l in np.unique(labels) if l != -1]
+    adjacency = {label: set() for label in unique_labels}
+    h, w = labels.shape
+
+    # Horizontal neighbors
+    left = labels[:, :-1]
+    right = labels[:, 1:]
+    mask = (left != right)
+    for (i, j) in zip(left[mask].flatten(), right[mask].flatten()):
+        if i != -1 and j != -1:
+            adjacency[int(i)].add(int(j))
+            adjacency[int(j)].add(int(i))
+    # Vertical neighbors
+    top = labels[:-1, :]
+    bottom = labels[1:, :]
+    mask = (top != bottom)
+    for (i, j) in zip(top[mask].flatten(), bottom[mask].flatten()):
+        if i != -1 and j != -1:
+            adjacency[int(i)].add(int(j))
+            adjacency[int(j)].add(int(i))
+    return adjacency
+
+def find_best_superpixel_combination(prev_mask, slic_labels, image):
+    """
+    Given a previous (binary) mask of an object and a superpixel segmentation (from SLIC)
+    on the current frame, this function returns the list of superpixel labels whose union’s
+    contour best matches the previous mask's contour descriptors.
+    
+    Parameters:
+      prev_mask: Binary mask (uint8) from the previous frame.
+      slic_labels: Superpixel label map for the current frame.
+      image: Current frame image (needed for contour extraction if required).
+      
+    Returns:
+      A list of superpixel IDs.
+    """
+    # 1. Compute target contour and descriptor from previous mask.
+    prev_mask_copy = prev_mask.copy()
+    contours, _ = cv2.findContours(prev_mask_copy, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return []
+    # Use the largest contour
+    target_contour = max(contours, key=cv2.contourArea)
+    simplified_target = simplify_contours([target_contour])[0]
+    target_desc = calculate_contour_descriptors(simplified_target)
+    
+    # 2. Compute adjacency for superpixels.
+    adjacency = compute_superpixel_adjacency(slic_labels)
+    
+    # 3. Choose an initial candidate superpixel.
+    # For each superpixel, compute the overlap with prev_mask.
+    candidate_overlaps = {}
+    for label in np.unique(slic_labels):
+        if label == -1:
+            continue
+        sp_mask = (slic_labels == label).astype(np.uint8) * 255
+        intersection = cv2.bitwise_and(prev_mask, sp_mask)
+        inter_area = cv2.countNonZero(intersection)
+        sp_area = cv2.countNonZero(sp_mask)
+        candidate_overlaps[label] = inter_area / sp_area if sp_area > 0 else 0
+    # Start with the superpixel with maximum overlap.
+    start_sp = max(candidate_overlaps, key=candidate_overlaps.get)
+    candidate_set = {int(start_sp)}
+    
+    # Helper to compute the union mask from candidate superpixels.
+    def union_mask(candidates):
+        return np.where(np.isin(slic_labels, list(candidates)), 255, 0).astype(np.uint8)
+    
+    # 4. Get descriptor of current candidate union.
+    union = union_mask(candidate_set)
+    cnts, _ = cv2.findContours(union, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if cnts:
+        current_contour = max(cnts, key=cv2.contourArea)
+        simplified_current = simplify_contours([current_contour])[0]
+        current_desc = calculate_contour_descriptors(simplified_current)
+        current_score = descriptor_distance(current_desc, target_desc)
+    else:
+        current_score = float('inf')
+    
+    # 5. Greedily add adjacent superpixels if they improve the score.
+    improved = True
+    while improved:
+        improved = False
+        # Consider neighbors of the current candidate set.
+        neighbors = set()
+        for sp in candidate_set:
+            neighbors |= adjacency.get(sp, set())
+        neighbors -= candidate_set  # only new ones
+        
+        best_candidate = None
+        best_candidate_score = current_score
+        for candidate in neighbors:
+            new_set = candidate_set | {candidate}
+            new_union = union_mask(new_set)
+            cnts, _ = cv2.findContours(new_union, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not cnts:
+                continue
+            new_contour = max(cnts, key=cv2.contourArea)
+            simplified_new = simplify_contours([new_contour])[0]
+            new_desc = calculate_contour_descriptors(simplified_new)
+            new_score = descriptor_distance(new_desc, target_desc)
+            if new_score < best_candidate_score:
+                best_candidate_score = new_score
+                best_candidate = candidate
+        
+        if best_candidate is not None:
+            candidate_set.add(best_candidate)
+            current_score = best_candidate_score
+            improved = True
+
+    mask = np.zeros(slic_labels.shape, dtype=np.uint8)
+    mask[np.isin(slic_labels, list(candidate_set))] = 255
+
+    cv2.imshow("contours mask", mask)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return mask
+'''
+
 
 # --- Histogram Operations ---
 def add_histograms(current_histogram, added_histogram):

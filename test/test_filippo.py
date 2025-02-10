@@ -1,10 +1,9 @@
 import cv2
 import time
 import psutil
-import glob
 import numpy as np
 import os
-from ObjectTracker import detection, mask_motion_estimation, motion_estimation, segmentation, feature_extraction, utils, mask_refinement
+from ObjectTracker import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
 
 def detection_complete(frame, object_class, target_pixels=150000):
     print('- DETECTION ')
@@ -15,7 +14,7 @@ def detection_complete(frame, object_class, target_pixels=150000):
         return
     
     if not masks:
-        print(f'\tERROR:No {object_detected} detected in the first frame')
+        print(f'\tERROR:No {object_class} detected in the first frame')
         return
     
     # Take only one object ( mask-box ), so the sistem is single object tracker
@@ -146,7 +145,6 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
         out.release()
     cv2.destroyAllWindows()
 
-# TRACKING FUNCTION
 def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output_folder=None, debugPrint=False):
 # - MOTION
     #print('- MOTION ESTIMATION')
@@ -167,7 +165,6 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 # - CROP FRAME
     try:
         cropped_next_frame, scaling_factors = utils.rescale(bounded_next_frame, 150000)
-
     except Exception as e:
         print(f"\tERROR: {e}")
         return
@@ -207,137 +204,13 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     return next_mask, next_box, next_histogram
 
 
-# DEBUG PRINT FUNCTIONS
-def debugPrintDetection(previus_frame, boxes, masks, frame_width, frame_height, output_folder=None):
-    masked_previus_frame = utils.draw_mask(previus_frame, boxes, masks[0], object_detected)
-    resized_masked_previus_frame = cv2.resize(masked_previus_frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
-    
-    cv2.imshow("Masked Image", resized_masked_previus_frame)
-    if output_folder is not None:        # Save the processed image
-        processed_image_path = os.path.join(output_folder, "1_Detection_YOLO_Mask.jpg")
-        cv2.imwrite(processed_image_path, resized_masked_previus_frame)
-    
-    # block the code in order to analyse the behavior frame to frame
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-def debugPrintMaskRefinement(refined_mask, box, previus_frame, frame_width, frame_height, output_folder=None):
-    
-    masked_previus_frame = utils.draw_mask(previus_frame, box, refined_mask, object_detected, color_mask=(255, 0, 0))
-    resized_masked_previus_frame = cv2.resize(masked_previus_frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
-    
-    cv2.imshow("Refined Masked Image", resized_masked_previus_frame)
-    if output_folder is not None:        # Save the processed image
-        processed_image_path = os.path.join(output_folder, "2_MaskRefinment.jpg")
-        cv2.imwrite(processed_image_path, resized_masked_previus_frame)
-    
-    # block the code in order to analyse the behavior frame to frame
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-def debugPrintMotionEstimation(previus_frame, previus_poi, next_poi, A, box, box_t, output_folder=None):
-    
-    # Apply the mask to extract the region of interest
-    # roi = cv2.bitwise_and(cropped_previus_frame, cropped_previus_frame, mask=mask)
-    # roi_path = os.path.join(output_folder, "4_1_ROI.jpg")   
-    # cv2.imwrite(roi_path, roi)
-
-    # Draw points of interest on the current frame and the next frame 
-    frame_points = previus_frame.copy()
-
-    for point in previus_poi:
-        x, y = point.ravel()
-        cv2.circle(frame_points, (int(x), int(y)), 5, (255, 0, 0), -1) #blu
-
-    for point in next_poi:
-        x, y = point.ravel()
-        cv2.circle(frame_points, (int(x), int(y)), 4, (0, 255, 0), -1)
-
-
-    # Rappresent the computed motion A with an arrow
-    center_x, center_y = previus_frame.shape[1] // 2, previus_frame.shape[0] // 2  # Center of the image
-    
-    start_point = np.array([center_x, center_y, 1])         # Start of the arrow in the center of the image
-    end_point = A @ np.array([center_x + 50, center_y, 1])  # End of the arrow dipent on the direction an intensiti of the motion; applied a offset of 50
-
-    start = (int(start_point[0]), int(start_point[1]))      # convert to int coordinates
-    end = (int(end_point[0]), int(end_point[1]))
-
-    cv2.arrowedLine(frame_points, start, end, (0, 0, 255), 3, tipLength=0.3)  # Draw to arrow in red
-    
-    # Draw the original box and the translated box
-    x1, y1, x2, y2 = map(int, box) 
-    cv2.rectangle(frame_points, (x1, y1), (x2, y2), (255, 0, 0), 3)
-
-    x1_t, y1_t, x2_t, y2_t = map(int, box_t) 
-    cv2.rectangle(frame_points, (x1_t, y1_t), (x2_t, y2_t), (0, 255, 0), 2, lineType=4)
-
-    cv2.imshow("Motion Image", frame_points)
-    if output_folder is not None:        # Save the processed image
-        frame_points_path = os.path.join(output_folder, "3_MotionEstimation.jpg")
-        cv2.imwrite(frame_points_path, frame_points)
-    
-    # block the code in order to analyse the behavior frame to frame
-    cv2.waitKey(0)
-    cv2.destroyAllWindows() 
-
-def debugPrintFrameCrop(cropped_previus_frame, resized_mask, cropped_next_frame, resized_box, box, frame, output_folder=None):
-    frame_width = 1000
-    frame_height = 600
-    
-    # Draw the original box and the resized box
-    frame_br = frame.copy()
-    x1, y1, x2, y2 = map(int, box) 
-    cv2.rectangle(frame_br, (x1, y1), (x2, y2), (255, 0, 0), 1)
-
-    x1_r, y1_r, x2_r, y2_r = map(int, resized_box) 
-    cv2.rectangle(frame_br, (x1_r, y1_r), (x2_r, y2_r), (255, 0, 0), 3)
-
-    cropped_previus_frame_mask = utils.draw_mask(cropped_previus_frame, masks=resized_mask)
-
-    resized_frame_br = cv2.resize(frame_br, (frame_width//2, frame_height//2), interpolation=cv2.INTER_AREA)
-    
-    h, w = cropped_next_frame.shape[:2]          # Get the originale dimension 
-    aspect_ratio = int( w / h )                  # compute the ratio to manintain the same proporsion
-    cropped_previus_frame_mask = cv2.resize(cropped_previus_frame_mask, (int(frame_height//4)*aspect_ratio, frame_height//4), interpolation=cv2.INTER_AREA)
-    
-    h, w = cropped_next_frame.shape[:2]     # Get the originale dimension 
-    aspect_ratio = int(w / h )                   # compute the ratio to manintain the same proporsion
-    cropped_next_frame = cv2.resize(cropped_next_frame, (int(frame_height//4)*aspect_ratio, frame_height//4), interpolation=cv2.INTER_AREA)
-
-    cropped_frames = np.vstack((cropped_previus_frame_mask, cropped_next_frame))
-    final_image = np.hstack((resized_frame_br,cropped_frames))
-
-    cv2.imshow("Resize", final_image)
-    if output_folder is not None:        
-        final_images_path = os.path.join(output_folder, "4_Resize&Crop.jpg")
-        cv2.imwrite(final_images_path, final_image)
-    
-    # block the code in order to analyse the behavior frame to frame
-    cv2.waitKey(0) 
-    cv2.destroyAllWindows()
-
-def debugPrintSegmentation(blurred, mask, output_folder=None):
-
-    # overlay the mask to the image as a translucent layer
-    masked_image = utils.draw_mask(blurred, masks=mask)
-
-    cv2.imshow("Masked Frame & Histogram", masked_image)
-    if output_folder is not None:        
-        combined_image_path = os.path.join(output_folder, "6_Segmentation.jpg")
-        cv2.imwrite(combined_image_path, masked_image)
-    
-    cv2.waitKey(0) 
-    cv2.destroyAllWindows()
-
-
-
 if __name__ == "__main__":
 
-    video_path = 'Demo/Video/Car3.mp4'
-    output_folder = os.path.join('test/Global/Car3')
+    video_path = 'Demo/Video/Car2.mp4'
+    output_folder = os.path.join('test/Global/Car2')
     object_detected = 'car'
 
     test_discreto_video(video_path, object_detected, output_folder=output_folder,  saveVideo=True, debugPrint=True)
+
 
 
