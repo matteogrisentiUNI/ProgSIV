@@ -211,9 +211,9 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 
 if __name__ == "__main__":
 
-    video_path = 'test/Video/teddy_bear.mp4'
-    output_folder = os.path.join('test/Global/teddy_bear')
-    object_detected = 'teddy bear'
+    video_path = 'test/Video/Boat.mp4'
+    output_folder = os.path.join('test/Global/Boat')
+    object_detected = 'boat'
 
     test_discreto_video(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=True)
 
