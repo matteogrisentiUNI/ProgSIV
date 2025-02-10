@@ -265,6 +265,26 @@ def remove_histograms(current_histogram, removed_histogram):
         refined_histogram[channel] = current_histogram[channel] - removed_histogram[channel]
     return refined_histogram
 
+def update_histogram(current_histogram, new_histogram, weight=0.7):
+    """
+    Updates a histogram represented as a dictionary ('blue', 'green', 'red').
+
+    Args:
+        hist1: Current histogram (dictionary with 'blue', 'green', 'red' keys).
+        hist2: Updated histogram (dictionary with 'blue', 'green', 'red' keys).
+        weight: Weight for the updated histogram (default 0.5).
+
+    Returns:
+        A new histogram where each channel is a weighted average of the corresponding channels in hist1 and hist2.
+    """
+    updated_histogram = {}
+    for channel in ['blue', 'green', 'red']:
+        updated_histogram[channel] = weight * current_histogram[channel] + (1 - weight) * new_histogram[channel]
+    unsatisfied_up, usatisfied_down = check_constraints(current_histogram, updated_histogram)
+    if usatisfied_down+unsatisfied_up > 500:
+        return current_histogram
+    return updated_histogram
+
 def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
     """
     Calculate histogram for a specific superpixel
@@ -389,24 +409,14 @@ def create_mask(labels, mask_labels):
     if contours:
         # Get the largest contour based on area
         max_contour = max(contours, key=cv2.contourArea)
-        #print (f"Contour area: {cv2.contourArea(max_contour)}")
-        '''# show contour
-        cv2.drawContours(mask, [max_contour], 0, 255, -1)
-        cv2.imshow("Contour", mask)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()'''
         processed_contour = process_contour(max_contour)
         # Create a new black image of the size of the bounding box
         mask = np.zeros(union_mask.shape, dtype=np.uint8)
         # Draw the processed contour on the black image
         cv2.drawContours(mask, [processed_contour], 0, 255, -1)
-        '''# show the final mask
-        cv2.imshow("Mask", mask)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()'''
     return mask
 
-def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=cv2.ximgproc.SLIC, compactness=5):
+def slic_segmentation(image, num_superpixels=200, merge_threshold=20, slic_type=cv2.ximgproc.SLIC, compactness=5):
     """
     Performs SLIC (Simple Linear Iterative Clustering) superpixel segmentation on the input image.
 
@@ -512,31 +522,8 @@ def slic_segmentation(image, num_superpixels=300, merge_threshold=20, slic_type=
     unique_roots = {find(label) for label in np.unique(labels)}
     root_to_id = {root: i for i, root in enumerate(unique_roots)}
     merged_labels = np.vectorize(lambda x: root_to_id[find(x)])(labels)
-    
-    # --- Create Thick Boundary Mask ---
-    merged_mask = np.zeros_like(merged_labels, dtype=np.uint8)
-    for label in np.unique(merged_labels):
-        label_mask = (merged_labels == label).astype(np.uint8)
-        contours, _ = cv2.findContours(label_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(merged_mask, contours, -1, 255, 1)
-        
-        merged_result = image.copy()
-        merged_result[merged_mask == 255] = (0, 255, 0)
-    
-    # --- Cluster Info ---
-    cluster_info = {
-        "avg_bgr": {i: bgr_sum[root]/cluster_size[root] for i, root in enumerate(unique_roots)},
-        "size": {i: cluster_size[root] for i, root in enumerate(unique_roots)}
-    }
-    
-    '''# show results
-    cv2.imshow("Original", image)
-    cv2.imshow("SLIC Segmentation", merged_result)
-    cv2.imshow("SLIC Mask", merged_mask)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
 
-    return merged_labels, merged_mask, merged_result, cluster_info
+    return merged_labels
 
 def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, debugPrint=False):
     """
@@ -551,12 +538,6 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, d
     Returns:
         Final segmentation mask (list of superpixel labels).
     """
-    # Debug counters
-    debug = {
-        'checked': 0,
-        'removed': 0,
-        'underflow_rejected': 0,
-    }
 
     # Assign border superpixels to background (label == -1)
     labels = remove_border_superpixels(initial_labels)
@@ -577,15 +558,13 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, d
     # Check constraints
     unsatisfied_up, unsatisfied_down = check_constraints(pred_hist, current_histogram, tolerance)
     #print(f"Unsatisfied up: {unsatisfied_up}, unsatisfied down: {unsatisfied_down}")
-    #utils.plot_histograms(pred_hist, current_histogram)
+    utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
 
     final_labels = []
 
     # --- Region Refining Loop ---
     while valid_labels:
         current_label = valid_labels.pop(0)
-        #print(f"Current label: {current_label}")
-        debug['checked'] += 1
 
         # Get superpixel properties
         sp_hist = get_superpixel_histogram(image, np.array(initial_labels), current_label)
@@ -601,7 +580,6 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, d
             current_histogram = temp_hist
             unsatisfied_up = new_up
             unsatisfied_down = new_down
-            debug['removed'] += 1
             #print(f"Removed {current_label} | New Up: {new_up}, Down: {new_down}")
             
         else:
@@ -609,49 +587,21 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, d
             final_labels.append(current_label)
             #plot_histograms(pred_hist, current_histogram)
             #show_translucent_mask(image, initial_labels, final_labels)
-            debug['underflow_rejected'] += 1
-    
-    graph = None
-
-    if debugPrint:
-        graph = utils.plot_histograms(pred_hist, current_histogram, 800, 600)
    
     #print("Debug info:", debug)
-    return final_labels, graph
+    return final_labels
 
 
 # --- Main Function ---
-def segmentation (cropped_image, pred_hist, tolerance=10, output_folder=None, debugPrint=False):
+def segmentation (cropped_image, pred_hist, tolerance=15, output_folder=None, debugPrint=False):
     #print("Image Shape: ", cropped_image.shape)
 
     # --- SLIC Segmentation ---
-    slic_labels, slic_mask, slic_result, slic_cluster_info = slic_segmentation(cropped_image)
-    #print("SLIC Segmentation Completed, total number of labels: ", len(np.unique(slic_labels)))
-    # show results
-    if debugPrint:
-        cv2.imshow("SLIC Segmentation", slic_result)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        # save results
-        if output_folder is not None:
-            slic_result_path = os.path.join(output_folder, "5_1_Segmentation_SLIC.jpg")
-            cv2.imwrite(slic_result_path, slic_result)
-
+    slic_labels = slic_segmentation(cropped_image)
 
     # --- Region Refinement ---
-    final_labels, graph = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance, debugPrint=debugPrint)
-    #print("Region Refinement Completed, final number of labels: ", len(np.unique(final_labels)))
-    # show the final labels
-    # utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
-    if debugPrint:
-        cv2.imshow("Histograms", graph)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        # save results
-        if output_folder is not None:
-            graph_path = os.path.join(output_folder, "5_2_Segmentation_Histograms.jpg")
-            cv2.imwrite(graph_path, graph)
-
+    final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance, debugPrint=debugPrint)
+ 
     # --- Final Visualization ---
     mask = create_mask(slic_labels, final_labels)
 

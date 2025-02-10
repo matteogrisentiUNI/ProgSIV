@@ -284,96 +284,53 @@ def find_centroid(mask):
         
     return centroid
 
-def resize(image, box, target_pixels, A , mask=None):
+def rescale(image, target_pixels):
+    # Get the current image dimensions
     im_y, im_x = image.shape[:2]  # Shape of the image (height, width)
-    #print('BOX', box[0], box[1], box[2], box[3])
-    #print('IMAGE: ', im_x, im_y)
+    #print(f"Image size: {im_x}x{im_y}")
+    actual_number_of_pixels = im_x * im_y
 
-    # Resize the mask to match the image dimensions
-    if mask is not None:
-        mask = cv2.resize(mask, (im_x, im_y), interpolation=cv2.INTER_NEAREST)
+    # Compute the scaling factor
+    scaling_factor = (target_pixels / actual_number_of_pixels) ** 0.5
 
-    # Calcola il centro del box
-    cx = (box[0] + box[2]) // 2
-    cy = (box[1] + box[3]) // 2
+    # Compute new width and height while preserving aspect ratio
+    new_width = int(im_x * scaling_factor)
+    new_height = int(im_y * scaling_factor)
 
-    # Calcola larghezza e altezza attuali
-    w = box[2] - box[0]
-    h = box[3] - box[1]
+    # Resize the image
+    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
-    motion_scaling_factor = compute_motion_scaling_factor(A)
-    #print('MOTION SCAL', motion_scaling_factor, type(motion_scaling_factor))
+    return resized_image, scaling_factor
 
-    # Ingrandisci il Box in base al moto
-    new_w = w * motion_scaling_factor
-    new_h = h * motion_scaling_factor
-
-    # Calcola i nuovi estremi del box
-    x1 = max(0, cx - new_w // 2)
-    y1 = max(0, cy - new_h // 2)
-    x2 = min(im_x, cx + new_w // 2)
-    y2 = min(im_y, cy + new_h // 2)
-    
-    x1 = int(x1); y1 = int(y1); x2 = int(x2); y2 = int(y2)
-    #print('BOX', x1, y1, x2, y2, type(x1), type(x2), type(y1), type(y2))
-
-    resized_box = np.array([x1, y1, x2, y2])
-
-    # Crop image and mask to get the segmented ROI
-    bounded_image = image[y1:y2, x1:x2] # Cut the region of interest from the image
-    if mask is not None:
-        bounded_mask = mask[y1:y2, x1:x2] # Cut the region of interest from the mask
-
-    original_pixels = abs((x2-x1) * (y2-y1))                          # Get the dimensions of the original image
-    pixel_scaling_factor = (target_pixels / original_pixels) ** 0.5   # Calculate the scaling factor to reach the target pixel count  
-    
-    new_width = int((x2-x1) * pixel_scaling_factor)
-    new_height = int((y2-y1) * pixel_scaling_factor)
-    
-    # Perform resizing
-    if bounded_image.size == 0:
-        raise ValueError("Image to resize is empty")
-    resized_image = cv2.resize(bounded_image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-
-    # Resize the mask 
-    if mask is not None:      
-        if bounded_mask.size == 0:
-            raise ValueError("Mask to resize is empty")
-        resized_mask = cv2.resize(bounded_mask, (new_width, new_height),  interpolation=cv2.INTER_NEAREST)  # Resize mask to image dimensions
-    else: 
-        resized_mask = None
-   
-    # Debug print the scaling factor
-    # print(f"Scaling factor: {pixel_scaling_factor:.4f}")
-    
-    # Show the original and resized images
-    '''cv2.imshow("Original Image", image)
-    cv2.imshow("Original Mask", mask)
-    cv2.imshow("Bounded Image", bounded_image)
-    cv2.imshow("Resized Image", resized_image)
-    cv2.imshow("Bounded Mask", bounded_mask)
-    cv2.imshow("Resized Mask", resized_mask)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-
-    return resized_image, resized_mask, resized_box, pixel_scaling_factor
 
 def resize_mask_with_padding(mask, box, target_height, target_width):
-    '''
-    Resize the final mask in order to be able to applay it correctly on the original frame
-    '''    
-    # Estrai le coordinate del box
+    """
+    Resize the mask and apply it to the original frame, handling out-of-bounds cases.
+    """
+    # Extract box coordinates
     x1, y1, x2, y2 = map(int, box)
+
+    # Ensure the box is within the image boundaries
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(target_width, x2)
+    y2 = min(target_height, y2)
+
+    # Recalculate box dimensions after clipping
     box_width = x2 - x1
     box_height = y2 - y1
 
-    # Ridimensiona la maschera alle dimensioni del box
+    if box_width <= 0 or box_height <= 0:
+        # If the box is completely out of bounds, return an empty mask
+        return np.zeros((target_height, target_width), dtype=np.uint8)
+
+    # Resize the mask to the (clipped) box dimensions
     resized_mask = cv2.resize(mask, (box_width, box_height))
 
-    # Crea un'immagine completamente nera della dimensione del frame
+    # Create a black image of the target frame size
     padded_mask = np.zeros((target_height, target_width), dtype=np.uint8)
 
-    # Inserisci la maschera all'interno del box
+    # Insert the resized mask into the padded mask
     padded_mask[y1:y2, x1:x2] = resized_mask
 
     return padded_mask
@@ -424,10 +381,55 @@ def shrink_box_to_mask(resized_box, mask, threshold=5):
     height = (max_y - min_y) + 2 * threshold
 
     # Definisci il nuovo bounding box
-    x1 = max(centroid[0] - width // 2, 0)
-    x2 = min(centroid[0] + width // 2, mask.shape[1])
-    y1 = max(centroid[1] - height // 2, 0)
-    y2 = min(centroid[1] + height // 2, mask.shape[0])
+    x1 = max(centroid[0] - width*1.15 // 2, 0)
+    x2 = min(centroid[0] + width*1.15 // 2, mask.shape[1])
+    y1 = max(centroid[1] - height*1.15 // 2, 0)
+    y2 = min(centroid[1] + height*1.15 // 2, mask.shape[0])
 
     return np.array([ int(x1), int(y1), int(x2), int(y2) ])
   
+
+def predict_bounding_box(image, box, affine_matrix, epsilon=0.5):
+    # Reshape the box into (num_points, 1, 2)
+    box_r = box.reshape(-1, 1, 2)
+
+    # Apply the affine transformation
+    transformed_corners = cv2.transform(box_r, affine_matrix)
+    
+    # Reshape back into (num_points, 2)
+    transformed_corners = transformed_corners.reshape(-1, 2)
+    
+    # Compute the new bounding box
+    x_min = int(transformed_corners[0][0])
+    y_min = int(transformed_corners[0][1])
+    x_max = int(transformed_corners[1][0])
+    y_max = int(transformed_corners[1][1])
+
+    # Compute dynamic paddings
+    dx1 = abs(x_min - box[0])
+    dy1 = abs(y_min - box[1])   
+    dx2 = abs(x_max - box[2])
+    dy2 = abs(y_max - box[3])
+    max_displacement_x = max(dx1, dx2)
+    max_displacement_y = max(dy1, dy2)
+    max_displacement_y = np.abs(transformed_corners[:, 1] - box_r[:, 0, 1]).max()
+    padding_x = max_displacement_x * epsilon
+    padding_y = max_displacement_y * epsilon
+    
+    width = x_max - x_min
+    height = y_max - y_min
+    x_min = int((x_min - padding_x - 0.1*max(height,width)))
+    y_min = int((y_min - padding_y - 0.1*max(height,width)))
+    x_max = int((x_max + padding_x + 0.1*max(height,width)))
+    y_max = int((y_max + padding_y + 0.1*max(height,width)))
+
+    #t_image = image[y_min:y_max, x_min:x_max]
+    #cv2.imshow("o_image", image)
+    #cv2.imshow("t_image", t_image)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
+
+    new_box = np.array([x_min, y_min, x_max, y_max])  # Format: (x_min, y_min, x_max, y_max)
+    
+    return new_box
+
