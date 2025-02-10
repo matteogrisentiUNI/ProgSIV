@@ -616,7 +616,7 @@ def create_mask(labels, mask_labels):
         cv2.drawContours(mask, [processed_contour], 0, 255, -1)
     return mask
 
-def slic_segmentation(image, num_superpixels=200, merge_threshold=20,
+def slic_segmentation(image, num_superpixels=250, merge_threshold=20,
                       slic_type=cv2.ximgproc.SLIC, compactness=5):
     """
     Performs SLIC superpixel segmentation with optional merging based on color similarity.
@@ -740,7 +740,7 @@ def slic_segmentation(image, num_superpixels=200, merge_threshold=20,
     return merged_labels
 
 
-def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, debugPrint=False):
+def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10, debugPrint=False):
     """
     Refines superpixel segmentation based on histogram constraints.
     

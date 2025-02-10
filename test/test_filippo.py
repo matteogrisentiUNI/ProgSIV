@@ -159,7 +159,7 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
         print(f"\tERROR: {e}")
         return
     
-    next_box = utils.predict_bounding_box(next_frame, prev_box, A)
+    next_box = utils.predict_bounding_box_final(next_frame, prev_frame, prev_box, A)
     bb_x1 = int(next_box[0])
     bb_y1 = int(next_box[1])
     bb_x2 = int(next_box[2])
@@ -193,7 +193,7 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     new_pixel_count = cv2.countNonZero(next_mask)
     #print(f"Number of pixels in the mask: {prev_pixel_count}")
     #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
-    if new_pixel_count < prev_pixel_count*0.85 or new_pixel_count > prev_pixel_count*1.15:
+    if new_pixel_count < prev_pixel_count*0.95 or new_pixel_count > prev_pixel_count*1.05:
         rows, cols = prev_mask.shape
         # Apply the affine matrix to the previous mask
         next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
@@ -204,18 +204,18 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     # 4: shrink the box in order to be closer to the final mask
     next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
 
-    next_histogram = feature_extraction.histogram_extraction(next_frame, next_mask)
+    next_histogram = prev_histogram#feature_extraction.histogram_extraction(next_frame, next_mask)
 
     return next_mask, next_box, next_histogram
 
 
 if __name__ == "__main__":
 
-    video_path = 'Demo/Video/Person.mov'
-    output_folder = os.path.join('test/Global/Person')
-    object_detected = 'person'
+    video_path = 'test/Video/teddy_bear.mp4'
+    output_folder = os.path.join('test/Global/teddy_bear')
+    object_detected = 'teddy bear'
 
-    test_discreto_video(video_path, object_detected, vertical=True, output_folder=output_folder,  saveVideo=True, debugPrint=True)
+    test_discreto_video(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=True)
 
 
 
