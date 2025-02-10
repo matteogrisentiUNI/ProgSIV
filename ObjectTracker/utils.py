@@ -432,4 +432,3 @@ def predict_bounding_box(image, box, affine_matrix, epsilon=0.5):
     new_box = np.array([x_min, y_min, x_max, y_max])  # Format: (x_min, y_min, x_max, y_max)
     
     return new_box
-

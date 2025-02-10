@@ -46,12 +46,12 @@ def detection_complete(frame, object_class, target_pixels=150000):
 
     return mask, box, histogram
 
-def test_discreto_video(video_path, object_detected, output_folder=None, saveVideo=False, debugPrint=False):
+def test_discreto_video(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
     cap = cv2.VideoCapture(video_path)
     os.makedirs(output_folder, exist_ok=True)
     performance_log_path = os.path.join(output_folder, 'performance.txt')
     os.makedirs(os.path.dirname(performance_log_path), exist_ok=True)
-
+    
     if saveVideo:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         fps = int(cap.get(cv2.CAP_PROP_FPS))
@@ -66,6 +66,8 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
     frame_count = 0
 
     ret, previous_frame = cap.read()
+    if vertical:  # if the video is in portrait mode rotate it of 90 degrees
+        previous_frame = cv2.rotate(previous_frame, cv2.ROTATE_90_CLOCKWISE)
     frame_count = 1
 
     cpu_before = psutil.cpu_percent(interval=None)
@@ -92,6 +94,7 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
     while cap.isOpened():
         print(i)
         i += 1
+
         # Start counter for the performance
         frame_start_time = time.time()
         cpu_before = psutil.cpu_percent(interval=None)
@@ -99,6 +102,8 @@ def test_discreto_video(video_path, object_detected, output_folder=None, saveVid
 
         # Take the next frame to analize
         ret, next_frame = cap.read()
+        if vertical:  # if the video is in portrait mode rotate it of 90 degrees
+            next_frame = cv2.rotate(next_frame, cv2.ROTATE_90_CLOCKWISE)
         if not ret:
             print("Video Ended")
             break
@@ -188,7 +193,7 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     new_pixel_count = cv2.countNonZero(next_mask)
     #print(f"Number of pixels in the mask: {prev_pixel_count}")
     #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
-    if new_pixel_count < prev_pixel_count*0.9 or new_pixel_count > prev_pixel_count*1.1:
+    if new_pixel_count < prev_pixel_count*0.85 or new_pixel_count > prev_pixel_count*1.15:
         rows, cols = prev_mask.shape
         # Apply the affine matrix to the previous mask
         next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
@@ -206,11 +211,11 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 
 if __name__ == "__main__":
 
-    video_path = 'Demo/Video/Car2.mp4'
-    output_folder = os.path.join('test/Global/Car2')
-    object_detected = 'car'
+    video_path = 'Demo/Video/Person.mov'
+    output_folder = os.path.join('test/Global/Person')
+    object_detected = 'person'
 
-    test_discreto_video(video_path, object_detected, output_folder=output_folder,  saveVideo=True, debugPrint=True)
+    test_discreto_video(video_path, object_detected, vertical=True, output_folder=output_folder,  saveVideo=True, debugPrint=True)
 
 
 
