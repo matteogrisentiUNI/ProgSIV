@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
-import os
-from collections import defaultdict
-from collections import defaultdict
+from collections import defaultdict, deque
 from scipy.ndimage import gaussian_filter1d
 from ObjectTracker import utils
 
@@ -287,58 +285,32 @@ def update_histogram(current_histogram, new_histogram, weight=0.7):
 
 def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
     """
-    Calculate histogram for a specific superpixel
-
-    Args:
-        image: Input image (grayscale or color)
-        labels: Superpixel label map from SLIC
-        superpixel_id: ID of the superpixel to analyze
-        bins: Number of histogram bins (default 256)
-
-    Returns:
-        A dictionary with histograms for 'blue', 'green', and 'red' channels.
+    Compute histogram for a given superpixel using np.bincount.
     """
-    # Create mask for the specific superpixel
     mask = (labels == superpixel_id)
-
-    hist_dict = {'blue': np.zeros(bins), 'green': np.zeros(bins), 'red': np.zeros(bins)}
-
-    if len(image.shape) == 2:  # Grayscale
-        # Extract pixels belonging to this superpixel
-        pixels = image[mask]
-        # Calculate histogram
-        hist = cv2.calcHist([pixels], [0], None, [bins], [0, 256]).flatten()
-        hist_dict['blue'] = hist  # Treat grayscale as blue channel
-        hist_dict['green'] = hist
-        hist_dict['red'] = hist
-    else:  # Color image
-        for idx, color in enumerate(['blue', 'green', 'red']):
-            pixels = image[:, :, idx][mask]
-            hist = cv2.calcHist([pixels], [0], None, [bins], [0, 256]).flatten()
-            hist_dict[color] = hist
-
+    hist_dict = {}
+    if image.ndim == 2:  # Grayscale: treat as single-channel repeated across colors
+        pixels = image[mask].ravel()
+        hist = np.bincount(pixels, minlength=bins)
+        for channel in ['blue', 'green', 'red']:
+            hist_dict[channel] = hist.copy()
+    else:
+        for idx, channel in enumerate(['blue', 'green', 'red']):
+            channel_pixels = image[:, :, idx][mask].ravel()
+            hist_dict[channel] = np.bincount(channel_pixels, minlength=bins)
     return hist_dict
 
-def check_constraints(hist1, hist2, tolerance=10):
+def check_constraints(hist_ref, hist_current, tolerance=10):
     """
-    Compares two histograms to ensure the second histogram never exceeds the first.
-    
-    Args:
-        hist1: A dictionary containing histograms for 'blue', 'green', and 'red' channels (reference histogram).
-        hist2: A dictionary containing histograms for 'blue', 'green', and 'red' channels (compared histogram).
-        tolerance: A tolerance value for comparing histograms (default 1.1).
-
-    Returns:
-        True if hist2 is always less than or equal to hist1 for all values in all channels, False otherwise.
+    Vectorized comparison of two histogram dictionaries.
+    Returns counts of bins where the current histogram is too high or too low.
     """
     unsatisfied_up = 0
     unsatisfied_down = 0
-    for channel in ['blue', 'green', 'red']:
-        for i in range(len(hist1[channel])):
-            if hist2[channel][i] > (hist1[channel][i]+tolerance):
-                unsatisfied_up += 1
-            if hist2[channel][i] < (hist1[channel][i]-tolerance):
-                unsatisfied_down += 1
+    for ch in ['blue', 'green', 'red']:
+        diff = hist_current[ch] - hist_ref[ch]
+        unsatisfied_up += np.count_nonzero(diff > tolerance)
+        unsatisfied_down += np.count_nonzero(diff < -tolerance)
     return unsatisfied_up, unsatisfied_down
 
 
@@ -416,25 +388,11 @@ def create_mask(labels, mask_labels):
         cv2.drawContours(mask, [processed_contour], 0, 255, -1)
     return mask
 
-def slic_segmentation(image, num_superpixels=200, merge_threshold=20, slic_type=cv2.ximgproc.SLIC, compactness=5):
+def slic_segmentation(image, num_superpixels=200, merge_threshold=20,
+                      slic_type=cv2.ximgproc.SLIC, compactness=5):
     """
-    Performs SLIC (Simple Linear Iterative Clustering) superpixel segmentation on the input image.
-
-    Parameters:
-    - image (numpy.ndarray): Input image in BGR format.
-    - num_superpixels (int): Approximate number of superpixels to generate. Default is 300.
-    - merge_threshold (float): Threshold for merging adjacent superpixels based on color similarity.
-                               If <= 0, no merging is performed. Default is 20.
-    - slic_type (int): Type of SLIC algorithm to use (e.g., cv2.ximgproc.SLIC, SLICO, or MSLIC). Default is cv2.ximgproc.SLIC.
-    - compactness (float): Compactness factor for superpixel shape regularity. Higher values lead to more compact shapes. Default is 5.
-
-    Returns:
-    - merged_labels (numpy.ndarray): 2D array of final superpixel labels after merging, with each pixel assigned a superpixel ID.
-    - merged_mask (numpy.ndarray): 2D binary mask with thick boundaries for the final merged superpixels.
-    - merged_result (numpy.ndarray): Input image with the final merged superpixel boundaries highlighted in green.
-    - cluster_info (dict): Information about the final clusters, including:
-        - "avg_bgr": Dictionary mapping each superpixel ID to its average BGR color.
-        - "size": Dictionary mapping each superpixel ID to its pixel count.
+    Performs SLIC superpixel segmentation with optional merging based on color similarity.
+    (See original docstring for full details.)
     """
     # --- SLIC Segmentation ---
     lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
@@ -445,38 +403,61 @@ def slic_segmentation(image, num_superpixels=200, merge_threshold=20, slic_type=
     labels = slic.getLabels()
     original_mask = slic.getLabelContourMask(True)
     
+    # If merging is not desired, compute cluster info and return early.
     if merge_threshold <= 0:
-        avg_bgr = {label: np.mean(image[labels == label], axis=0) for label in np.unique(labels)}
+        unique, counts = np.unique(labels, return_counts=True)
+        # Compute per-cluster BGR sums using np.bincount
+        b_sum = np.bincount(labels.ravel(), weights=image[..., 0].ravel())
+        g_sum = np.bincount(labels.ravel(), weights=image[..., 1].ravel())
+        r_sum = np.bincount(labels.ravel(), weights=image[..., 2].ravel())
+        avg_bgr = {i: np.array([b_sum[i], g_sum[i], r_sum[i]]) / counts[i]
+                   for i in unique}
         result = image.copy()
         result[original_mask == 255] = (0, 255, 0)
-        return labels, original_mask, result, {"avg_bgr": avg_bgr, "size": dict(zip(*np.unique(labels, return_counts=True)))}
+        cluster_info = {"avg_bgr": avg_bgr, "size": dict(zip(unique, counts))}
+        return labels, original_mask, result, cluster_info
 
-    # --- Superpixel Adjacency via Boundary Pixels ---
+    # --- Compute Adjacency Map via Vectorized Boundary Extraction ---
     height, width = labels.shape
     adjacent = defaultdict(set)
     
-    # Horizontal boundaries
-    for y in range(height):
-        for x in range(width-1):
-            left = labels[y, x]
-            right = labels[y, x+1]
-            if left != right:
-                adjacent[left].add(right)
-                adjacent[right].add(left)
+    # Horizontal neighbors: compare labels[:, :-1] with labels[:, 1:]
+    left = labels[:, :-1]
+    right = labels[:, 1:]
+    mask = left != right
+    if np.any(mask):
+        a = left[mask]
+        b = right[mask]
+        # Always store the smaller label first to avoid duplicates.
+        pairs = np.stack([np.minimum(a, b), np.maximum(a, b)], axis=-1)
+        for p in np.unique(pairs, axis=0):
+            adjacent[p[0]].add(p[1])
+            adjacent[p[1]].add(p[0])
     
-    # Vertical boundaries
-    for y in range(height-1):
-        for x in range(width):
-            top = labels[y, x]
-            bottom = labels[y+1, x]
-            if top != bottom:
-                adjacent[top].add(bottom)
-                adjacent[bottom].add(top)
-
-    # --- Union-Find with Iterative Merging ---
-    parent = list(range(np.max(labels) + 1))
-    bgr_sum = {label: np.sum(image[labels == label], axis=0) for label in np.unique(labels)}
-    cluster_size = {label: np.sum(labels == label) for label in np.unique(labels)}
+    # Vertical neighbors: compare labels[:-1, :] with labels[1:, :]
+    top = labels[:-1, :]
+    bottom = labels[1:, :]
+    mask = top != bottom
+    if np.any(mask):
+        a = top[mask]
+        b = bottom[mask]
+        pairs = np.stack([np.minimum(a, b), np.maximum(a, b)], axis=-1)
+        for p in np.unique(pairs, axis=0):
+            adjacent[p[0]].add(p[1])
+            adjacent[p[1]].add(p[0])
+    
+    # --- Precompute Cluster Statistics Using np.bincount ---
+    num_labels = np.max(labels) + 1
+    sizes = np.bincount(labels.ravel(), minlength=num_labels)
+    b_sum = np.bincount(labels.ravel(), weights=image[..., 0].ravel(), minlength=num_labels)
+    g_sum = np.bincount(labels.ravel(), weights=image[..., 1].ravel(), minlength=num_labels)
+    r_sum = np.bincount(labels.ravel(), weights=image[..., 2].ravel(), minlength=num_labels)
+    bgr_sum = {i: np.array([b_sum[i], g_sum[i], r_sum[i]])
+               for i in range(num_labels)}
+    cluster_size = {i: sizes[i] for i in range(num_labels)}
+    
+    # --- Union-Find for Iterative Merging ---
+    parent = list(range(num_labels))
     
     def find(u):
         while parent[u] != u:
@@ -484,113 +465,105 @@ def slic_segmentation(image, num_superpixels=200, merge_threshold=20, slic_type=
             u = parent[u]
         return u
     
-    # Iterate until no more merges occur
     changed = True
     while changed:
         changed = False
-        for label in list(adjacent.keys()):  # Iterate copy to avoid runtime errors
+        # Work on a copy of keys to avoid modification issues during iteration.
+        for label in list(adjacent.keys()):
             root_label = find(label)
-            current_adjacent = adjacent[root_label].copy()
-            
-            for neighbor in current_adjacent:
+            # Copy current neighbors to avoid concurrent modification.
+            for neighbor in list(adjacent[root_label]):
                 root_neighbor = find(neighbor)
                 if root_label == root_neighbor:
                     continue
-                
+                # Compute average colors.
                 avg_label = bgr_sum[root_label] / cluster_size[root_label]
                 avg_neighbor = bgr_sum[root_neighbor] / cluster_size[root_neighbor]
-                
-                if all(abs(avg_label - avg_neighbor) <= merge_threshold):
-                    # Merge smaller into larger
+                # If all channels are within the merge threshold...
+                if np.all(np.abs(avg_label - avg_neighbor) <= merge_threshold):
+                    # Merge the smaller cluster into the larger.
                     if cluster_size[root_label] < cluster_size[root_neighbor]:
                         root_label, root_neighbor = root_neighbor, root_label
-                    
                     parent[root_neighbor] = root_label
                     bgr_sum[root_label] += bgr_sum[root_neighbor]
                     cluster_size[root_label] += cluster_size[root_neighbor]
+                    # Remove merged neighbor's data.
                     del bgr_sum[root_neighbor]
                     del cluster_size[root_neighbor]
-                    
-                    # Update adjacency: merge neighbor's adjacents into root
+                    # Merge adjacency: update neighbor sets.
                     adjacent[root_label].update(adjacent[root_neighbor])
-                    adjacent[root_label].discard(root_label)  # Remove self-reference
+                    adjacent[root_label].discard(root_label)
                     del adjacent[root_neighbor]
-                    
                     changed = True
 
-    # --- Final Labeling ---
-    unique_roots = {find(label) for label in np.unique(labels)}
-    root_to_id = {root: i for i, root in enumerate(unique_roots)}
-    merged_labels = np.vectorize(lambda x: root_to_id[find(x)])(labels)
+    # --- Final Label Mapping ---
+    # Build a mapping from original label to new label based on union-find results.
+    mapping = np.empty(num_labels, dtype=np.int32)
+    root_to_new = {}
+    new_label = 0
+    for i in range(num_labels):
+        root = find(i)
+        if root not in root_to_new:
+            root_to_new[root] = new_label
+            new_label += 1
+        mapping[i] = root_to_new[root]
+    merged_labels = mapping[labels]
 
     return merged_labels
 
+
 def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=15, debugPrint=False):
     """
-    Implements histogram-based superpixel selection
+    Refines superpixel segmentation based on histogram constraints.
     
     Args:
-        image: Input BGR image.
-        labels: Superpixel label map from SLIC.
-        pred_hist: Dictionary of predicted histograms {'blue': [...], 'green': [...], 'red': [...]}
-        tolerance: Allowed overflow.
-        
+      image: Input BGR image.
+      initial_labels: Superpixel label map from SLIC.
+      pred_hist: Target histograms as a dict {'blue': [...], 'green': [...], 'red': [...]}.
+      tolerance: Allowed per-bin deviation.
+      debugPrint: If True, plot histograms.
+      
     Returns:
-        Final segmentation mask (list of superpixel labels).
+      final_labels: List of superpixel IDs retained after refinement.
     """
+    # Remove border superpixels (assume remove_border_superpixels returns a np.array)
+    labels = np.array(remove_border_superpixels(initial_labels))
+    
+    # Get list of valid superpixel labels (ignore -1)
+    valid_labels = [lbl for lbl in np.unique(labels) if lbl != -1]
 
-    # Assign border superpixels to background (label == -1)
-    labels = remove_border_superpixels(initial_labels)
-    #print("final number of labels: ", len(np.unique(labels)))
-    # Initialize current histogram as sum of all superpixels
-    current_histogram = {
-        'blue': np.zeros(256, dtype=int),
-        'green': np.zeros(256, dtype=int),
-        'red': np.zeros(256, dtype=int)
-    }
-    valid_labels = [l for l in np.unique(labels) if l != -1]
-    #print(f"Valid labels length: {len(valid_labels)}")
-    for label_i in valid_labels:
-        sp_hist = get_superpixel_histogram(image, initial_labels, label_i)
-        current_histogram = add_histograms(current_histogram, sp_hist)
-    #print(f"Initialized histogram")
+    # Precompute each superpixel’s histogram once.
+    sp_hist_dict = {lbl: get_superpixel_histogram(image, labels, lbl) for lbl in valid_labels}
 
-    # Check constraints
+    # Build the overall histogram by summing all superpixel histograms.
+    current_histogram = {ch: np.zeros(256, dtype=int) for ch in ['blue', 'green', 'red']}
+    for lbl in valid_labels:
+        current_histogram = add_histograms(current_histogram, sp_hist_dict[lbl])
+
+    # Compute initial constraint violations.
     unsatisfied_up, unsatisfied_down = check_constraints(pred_hist, current_histogram, tolerance)
-    #print(f"Unsatisfied up: {unsatisfied_up}, unsatisfied down: {unsatisfied_down}")
-    utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
+    if debugPrint:
+        utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
 
     final_labels = []
+    # Use deque for efficient pop from left.
+    valid_queue = deque(valid_labels)
 
-    # --- Region Refining Loop ---
-    while valid_labels:
-        current_label = valid_labels.pop(0)
-
-        # Get superpixel properties
-        sp_hist = get_superpixel_histogram(image, np.array(initial_labels), current_label)
+    while valid_queue:
+        current_label = valid_queue.popleft()
+        sp_hist = sp_hist_dict[current_label]
+        # Simulate removal by subtracting this superpixel’s histogram.
         temp_hist = remove_histograms(current_histogram, sp_hist)
-        #plot_histograms(pred_hist, temp_hist)
-        
-        # Check new constraints
         new_up, new_down = check_constraints(pred_hist, temp_hist, tolerance)
-        #print(f"New up: {new_up}, new down: {new_down}")
         
-        # Decision criteria
+        # Remove superpixel if it improves (reduces) the "overflow" without worsening underflow.
         if new_up < unsatisfied_up and new_down <= unsatisfied_down:
             current_histogram = temp_hist
-            unsatisfied_up = new_up
-            unsatisfied_down = new_down
-            #print(f"Removed {current_label} | New Up: {new_up}, Down: {new_down}")
-            
+            unsatisfied_up, unsatisfied_down = new_up, new_down
         else:
-            #print("current label is valid")
             final_labels.append(current_label)
-            #plot_histograms(pred_hist, current_histogram)
-            #show_translucent_mask(image, initial_labels, final_labels)
-   
-    #print("Debug info:", debug)
+    
     return final_labels
-
 
 # --- Main Function ---
 def segmentation (cropped_image, pred_hist, tolerance=15, output_folder=None, debugPrint=False):

@@ -418,10 +418,10 @@ def predict_bounding_box(image, box, affine_matrix, epsilon=0.5):
     
     width = x_max - x_min
     height = y_max - y_min
-    x_min = int((x_min - padding_x - 0.1*max(height,width)))
-    y_min = int((y_min - padding_y - 0.1*max(height,width)))
-    x_max = int((x_max + padding_x + 0.1*max(height,width)))
-    y_max = int((y_max + padding_y + 0.1*max(height,width)))
+    x_min = int((x_min - padding_x - 0*max(height,width)))
+    y_min = int((y_min - padding_y - 0*max(height,width)))
+    x_max = int((x_max + padding_x + 0*max(height,width)))
+    y_max = int((y_max + padding_y + 0*max(height,width)))
 
     #t_image = image[y_min:y_max, x_min:x_max]
     #cv2.imshow("o_image", image)

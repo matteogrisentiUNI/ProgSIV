@@ -42,7 +42,8 @@ def detection_complete(frame, object_class, target_pixels=150000):
     # Rescale each channel
     for channel in histogram:
         for i in range(len(histogram[channel])):
-            histogram[channel][i] = int(histogram[channel][i] * scaling_factor)
+            value = histogram[channel][i]
+            histogram[channel][i] = int(value * scaling_factor)
 
     return mask, box, histogram
 
@@ -190,7 +191,7 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     new_pixel_count = cv2.countNonZero(next_mask)
     #print(f"Number of pixels in the mask: {prev_pixel_count}")
     #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
-    if new_pixel_count < prev_pixel_count*0.85 or new_pixel_count > prev_pixel_count*1.15:
+    if new_pixel_count < prev_pixel_count*0.9 or new_pixel_count > prev_pixel_count*1.1:
         rows, cols = prev_mask.shape
         # Apply the affine matrix to the previous mask
         next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
