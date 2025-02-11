@@ -517,3 +517,111 @@ def compute_motion_scaling_factor(A, base_scale=1.5, min_scale=1, max_scale=2):
     motion_scaling_factor = np.clip(motion_scaling_factor * base_scale, min_scale, max_scale)
 
     return motion_scaling_factor
+
+
+
+# DEBUG PRINT FUNCTIONS
+def debugPrintDetection(previus_frame, boxes, masks, object_detected, frame_width, frame_height, output_folder=None):
+    masked_previus_frame = draw_mask(previus_frame, boxes, masks[0], object_detected)
+    resized_masked_previus_frame = cv2.resize(masked_previus_frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
+    
+    cv2.imshow("Masked Image", resized_masked_previus_frame)
+    if output_folder is not None:        # Save the processed image
+        processed_image_path = os.path.join(output_folder, "1_Detection_YOLO_Mask.jpg")
+        cv2.imwrite(processed_image_path, resized_masked_previus_frame)
+    
+    # block the code in order to analyse the behavior frame to frame
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+def debugPrintMaskRefinement(refined_mask, box, previus_frame, object_detected, frame_width, frame_height, output_folder=None):
+    
+    masked_previus_frame = draw_mask(previus_frame, box, refined_mask, object_detected, color_mask=(255, 0, 0))
+    resized_masked_previus_frame = cv2.resize(masked_previus_frame, (frame_width // 2, frame_height // 2), interpolation=cv2.INTER_AREA)
+    
+    cv2.imshow("Refined Masked Image", resized_masked_previus_frame)
+    if output_folder is not None:        # Save the processed image
+        processed_image_path = os.path.join(output_folder, "2_MaskRefinment.jpg")
+        cv2.imwrite(processed_image_path, resized_masked_previus_frame)
+    
+    # block the code in order to analyse the behavior frame to frame
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+def debugPrintMotionEstimation(previus_frame, previus_poi, next_poi, A, box, box_t, output_folder=None):
+    
+    # Apply the mask to extract the region of interest
+    # roi = cv2.bitwise_and(cropped_previus_frame, cropped_previus_frame, mask=mask)
+    # roi_path = os.path.join(output_folder, "4_1_ROI.jpg")   
+    # cv2.imwrite(roi_path, roi)
+
+    # Draw points of interest on the current frame and the next frame 
+    frame_points = previus_frame.copy()
+
+    for point in previus_poi:
+        x, y = point.ravel()
+        cv2.circle(frame_points, (int(x), int(y)), 5, (255, 0, 0), -1) #blu
+
+    for point in next_poi:
+        x, y = point.ravel()
+        cv2.circle(frame_points, (int(x), int(y)), 4, (0, 255, 0), -1)
+
+
+    # Rappresent the computed motion A with an arrow
+    center_x, center_y = previus_frame.shape[1] // 2, previus_frame.shape[0] // 2  # Center of the image
+    
+    start_point = np.array([center_x, center_y, 1])         # Start of the arrow in the center of the image
+    end_point = A @ np.array([center_x + 50, center_y, 1])  # End of the arrow dipent on the direction an intensiti of the motion; applied a offset of 50
+
+    start = (int(start_point[0]), int(start_point[1]))      # convert to int coordinates
+    end = (int(end_point[0]), int(end_point[1]))
+
+    cv2.arrowedLine(frame_points, start, end, (0, 0, 255), 3, tipLength=0.3)  # Draw to arrow in red
+    
+    # Draw the original box and the translated box
+    np.reshape(box, 4)
+    x1, y1, x2, y2 = map(int, box) 
+    cv2.rectangle(frame_points, (x1, y1), (x2, y2), (255, 0, 0), 3)
+
+    np.reshape(box_t, 4)
+    x1_t, y1_t, x2_t, y2_t = map(int, box_t) 
+    cv2.rectangle(frame_points, (x1_t, y1_t), (x2_t, y2_t), (0, 255, 0), 2, lineType=4)
+
+    cv2.imshow("Motion Image", frame_points)
+    if output_folder is not None:        # Save the processed image
+        frame_points_path = os.path.join(output_folder, "3_MotionEstimation.jpg")
+        cv2.imwrite(frame_points_path, frame_points)
+    
+    # block the code in order to analyse the behavior frame to frame
+    cv2.waitKey(0)
+    #cv2.destroyAllWindows() 
+
+def debugPrintFrameCrop(cropped_next_frame, output_folder=None):
+    frame_height = 600
+  
+    h, w = cropped_next_frame.shape[:2]          # Get the originale dimension 
+    aspect_ratio = int( w / h )                  # compute the ratio to manintain the same proporsion
+    cropped_previus_frame_mask = cv2.resize(cropped_next_frame, (int(frame_height)*aspect_ratio, frame_height), interpolation=cv2.INTER_AREA)
+    
+    cv2.imshow("Cropped Next Frame", cropped_previus_frame_mask)
+    if output_folder is not None:        
+        final_images_path = os.path.join(output_folder, "4_Resize&Crop.jpg")
+        cv2.imwrite(final_images_path, cropped_previus_frame_mask)
+    
+    # block the code in order to analyse the behavior frame to frame
+    cv2.waitKey(0) 
+    #cv2.destroyAllWindows()
+
+def debugPrintSegmentation(blurred, mask, output_folder=None):
+
+    # overlay the mask to the image as a translucent layer
+    masked_image = draw_mask(blurred, masks=mask)
+
+    cv2.imshow("New Mask", masked_image)
+    if output_folder is not None:        
+        combined_image_path = os.path.join(output_folder, "6_Segmentation.jpg")
+        cv2.imwrite(combined_image_path, masked_image)
+    
+    cv2.waitKey(0) 
+    #cv2.destroyAllWindows()
+

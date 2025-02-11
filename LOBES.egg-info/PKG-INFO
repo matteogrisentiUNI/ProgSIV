@@ -10,7 +10,7 @@ Classifier: Operating System :: OS Independent
 Requires-Python: >=3.8
 License-File: LICENSE
 Requires-Dist: ultralytics
-Requires-Dist: opencv-python
+Requires-Dist: opencv-contrib-python
 Requires-Dist: numpy
 Requires-Dist: psutil
 Requires-Dist: matplotlib
