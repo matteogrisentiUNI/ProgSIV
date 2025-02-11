@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from collections import defaultdict, deque
 from scipy.ndimage import gaussian_filter1d
-from LOB_S import utils
+from LOBES import utils
 
 # --- Contour Operations ---
 def simplify_contours(contours, epsilon_factor=0.001):

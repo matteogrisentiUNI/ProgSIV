@@ -1,12 +1,12 @@
 import os
-from LOB_S import LOB_S
+from LOBES import LOBES
 
 
 if __name__ == "__main__":
 
-    video_path = 'test/Video/Boat.mp4'
-    output_folder = os.path.join('test/Global/Boat')
-    object_detected = 'boat'
+    video_path = 'test/Video/Car4.mp4'
+    output_folder = os.path.join('test/Global/Car4')
+    object_detected = 'car'
 
-    LOB_S(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=False)
+    LOBES(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=False)
 

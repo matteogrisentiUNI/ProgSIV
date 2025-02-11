@@ -1,5 +1,5 @@
 Metadata-Version: 2.2
-Name: LOB-S
+Name: LOBES
 Version: 0.1.1
 Summary: Low-Level Object-Tracking & Segmentation Library using YOLO and Image Processing
 Home-page: https://github.com/matteogrisenti/ProgSIV
