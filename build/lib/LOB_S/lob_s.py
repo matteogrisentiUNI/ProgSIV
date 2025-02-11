@@ -3,8 +3,10 @@ import time
 import psutil
 import numpy as np
 import os
-from LOBES import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
+from LOB_S import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
 
+
+# DETECTION PHASE: Yolo Detection + Mask Refinment
 def detection_complete(frame, object_class, target_pixels=150000):
     print('- DETECTION ')
     try:
@@ -46,7 +48,68 @@ def detection_complete(frame, object_class, target_pixels=150000):
 
     return mask, box, histogram
 
-def test_discreto_video(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
+# TRACKING PHASE: Motion + Segmentation
+def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output_folder=None, debugPrint=False):
+# - MOTION
+    #print('- MOTION ESTIMATION')
+    try:
+        _, _, A = mask_motion_estimation( prev_frame, next_frame, mask=prev_mask )
+    except Exception as e:
+        print(f"\tERROR: {e}")
+        return
+    
+    next_box = utils.predict_bounding_box_final(next_frame, prev_frame, prev_box, A)
+    bb_x1 = int(next_box[0])
+    bb_y1 = int(next_box[1])
+    bb_x2 = int(next_box[2])
+    bb_y2 = int(next_box[3])
+
+    bounded_next_frame = next_frame[bb_y1:bb_y2, bb_x1:bb_x2]
+
+# - CROP FRAME
+    try:
+        cropped_next_frame, scaling_factors = utils.rescale(bounded_next_frame, 150000)
+    except Exception as e:
+        print(f"\tERROR: {e}")
+        return
+
+# - SEGMENTATION
+    # Apply Gaussian blur
+    blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
+
+    # Extract the region of interest
+    next_mask = segmentation.segmentation(blurred_next_frame, prev_histogram, output_folder=output_folder, debugPrint=debugPrint)
+
+#   RESCALING: we have to rescale the mask to the original frame dimension
+    #print('- RESCALING')
+    # 1: Resize the mask to the origina pixel quantity
+    original_width = int(next_mask.shape[1] / scaling_factors)
+    original_height = int(next_mask.shape[0] / scaling_factors)
+    next_mask = cv2.resize(next_mask, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+    
+    # Count the number of pixels of the original mask
+    prev_pixel_count = cv2.countNonZero(prev_mask)
+    new_pixel_count = cv2.countNonZero(next_mask)
+    #print(f"Number of pixels in the mask: {prev_pixel_count}")
+    #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
+    if new_pixel_count < prev_pixel_count*0.95 or new_pixel_count > prev_pixel_count*1.05:
+        rows, cols = prev_mask.shape
+        # Apply the affine matrix to the previous mask
+        next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
+    else:
+        # Adding black padding in order the mask match the dimension of the original frame
+        next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
+
+    # 4: shrink the box in order to be closer to the final mask
+    next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
+
+    next_histogram = prev_histogram#feature_extraction.histogram_extraction(next_frame, next_mask)
+
+    return next_mask, next_box, next_histogram
+
+
+# LOB&S 
+def LOB_S(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
     cap = cv2.VideoCapture(video_path)
     os.makedirs(output_folder, exist_ok=True)
     performance_log_path = os.path.join(output_folder, 'performance.txt')
@@ -149,71 +212,4 @@ def test_discreto_video(video_path, object_detected, vertical=False, output_fold
     if saveVideo:
         out.release()
     cv2.destroyAllWindows()
-
-def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output_folder=None, debugPrint=False):
-# - MOTION
-    #print('- MOTION ESTIMATION')
-    try:
-        _, _, A = mask_motion_estimation( prev_frame, next_frame, mask=prev_mask )
-    except Exception as e:
-        print(f"\tERROR: {e}")
-        return
-    
-    next_box = utils.predict_bounding_box_final(next_frame, prev_frame, prev_box, A)
-    bb_x1 = int(next_box[0])
-    bb_y1 = int(next_box[1])
-    bb_x2 = int(next_box[2])
-    bb_y2 = int(next_box[3])
-
-    bounded_next_frame = next_frame[bb_y1:bb_y2, bb_x1:bb_x2]
-
-# - CROP FRAME
-    try:
-        cropped_next_frame, scaling_factors = utils.rescale(bounded_next_frame, 150000)
-    except Exception as e:
-        print(f"\tERROR: {e}")
-        return
-
-# - SEGMENTATION
-    # Apply Gaussian blur
-    blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
-
-    # Extract the region of interest
-    next_mask = segmentation.segmentation(blurred_next_frame, prev_histogram, output_folder=output_folder, debugPrint=debugPrint)
-
-#   RESCALING: we have to rescale the mask to the original frame dimension
-    #print('- RESCALING')
-    # 1: Resize the mask to the origina pixel quantity
-    original_width = int(next_mask.shape[1] / scaling_factors)
-    original_height = int(next_mask.shape[0] / scaling_factors)
-    next_mask = cv2.resize(next_mask, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
-    
-    # Count the number of pixels of the original mask
-    prev_pixel_count = cv2.countNonZero(prev_mask)
-    new_pixel_count = cv2.countNonZero(next_mask)
-    #print(f"Number of pixels in the mask: {prev_pixel_count}")
-    #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
-    if new_pixel_count < prev_pixel_count*0.95 or new_pixel_count > prev_pixel_count*1.05:
-        rows, cols = prev_mask.shape
-        # Apply the affine matrix to the previous mask
-        next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
-    else:
-        # Adding black padding in order the mask match the dimension of the original frame
-        next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
-
-    # 4: shrink the box in order to be closer to the final mask
-    next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
-
-    next_histogram = prev_histogram#feature_extraction.histogram_extraction(next_frame, next_mask)
-
-    return next_mask, next_box, next_histogram
-
-
-if __name__ == "__main__":
-
-    video_path = 'test/Video/Boat.mp4'
-    output_folder = os.path.join('test/Global/Boat')
-    object_detected = 'boat'
-
-    test_discreto_video(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=True)
 

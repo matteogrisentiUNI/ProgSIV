@@ -1,7 +1,0 @@
-ultralytics
-opencv-python
-numpy
-psutil
-matplotlib
-networkx
-tqdm

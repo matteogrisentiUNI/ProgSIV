@@ -26,3 +26,30 @@ class ObjectTracker:
                     })
         return detections
 
+def detection(image, target_class):
+
+    #print(f"YOLO OBJECT DETECTION")
+    
+    if image is None:
+        raise FileNotFoundError(f"\tError: Image problem")
+
+    # Initialize Object Tracker
+    tracker = ObjectTracker(target_class=target_class, conf_threshold=0.1)
+    # Perform YOLO detection
+    detections = tracker.detect(image)
+
+    # Extract detection data
+    boxes = [d['box'] for d in detections]
+    masks = [d['mask'] for d in detections]
+    confidence = [d['confidence'] for d in detections]
+    class_names = [d['class_name'] for d in detections]
+    
+    # Draw masks and bounding boxes on the image
+    # masked_image = utils.draw_mask(image, boxes, masks, class_names)
+    
+    #if output_folder is not None:        # Save the processed image
+    #    processed_image_path = os.path.join(output_folder, "YOLOMasked.jpg")
+    #    cv2.imwrite(processed_image_path, masked_image)
+
+    return masks, boxes
+
