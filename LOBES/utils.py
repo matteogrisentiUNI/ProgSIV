@@ -74,9 +74,13 @@ def plot_histograms(hist1, hist2, width, height):
     # Load the saved plot as an image
     plot_img = cv2.imread('histogram_plot.png')
 
-     # Resize for better display
+
+    # Resize for better display
     plot_img = cv2.resize(plot_img, (width, height))
 
+    cv2.imshow('Histogram Plot', plot_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
     # Remove the temporary file
     os.remove(temp_filename)
 
@@ -174,6 +178,8 @@ def visualize_superpixels_with_random_colors(image, labels):
     
     # Show the visualization
     cv2.imshow("Superpixels Visualization", colored_superpixels)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 def show_translucent_mask(image, labels, mask_labels):
     """

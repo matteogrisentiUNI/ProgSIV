@@ -26,3 +26,10 @@ Average CPU usage: 14.84%
 Average Memory usage: 80.26%
 Average time per frame: 0.2766 seconds
 Total processing time: 126.10 seconds
+
+--- New Run ---
+Total frames processed: 450
+Average CPU usage: 16.93%
+Average Memory usage: 78.85%
+Average time per frame: 0.2479 seconds
+Total processing time: 112.70 seconds

@@ -7,7 +7,7 @@ from LOBES import detection, mask_motion_estimation, segmentation, feature_extra
 
 
 # DETECTION PHASE: Yolo Detection + Mask Refinment
-def detection_complete(frame, object_class, target_pixels=150000):
+def detection_complete(frame, object_class, target_pixels=50000):
     #print('- DETECTION ')
     try:
         masks, boxes = detection(frame, object_class)
@@ -86,7 +86,7 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
         blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
 
         # Extract the region of interest
-        next_mask = segmentation.segmentation(blurred_next_frame, prev_histogram, output_folder=output_folder, debugPrint=debugPrint)
+        next_mask, next_histogram = segmentation.segmentation(blurred_next_frame, prev_histogram)
 
     except Exception as e:
         print(f"\tSEGMENTATION ERROR: {e}")
@@ -117,8 +117,6 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 
     # 4: shrink the box in order to be closer to the final mask
     next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
-
-    next_histogram = feature_extraction.histogram_extraction(next_frame, next_mask)
 
     return next_mask, next_box, next_histogram
 
@@ -185,10 +183,10 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
         if not ret:
             print("Video Ended")
             break
-        
+
 ## --- TRAKING --- ##
         next_mask, next_box, next_histogram = tracking(previous_frame, histogram, mask, box, next_frame, output_folder=output_folder, debugPrint=debugPrint)
-        
+
         # Save next frame with bounding box an mask in the output video
         if saveVideo:
             output_frame = utils.draw_mask(next_frame, next_box, next_mask, object_detected, color_mask=(255, 0, 0))
@@ -199,7 +197,8 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
         previous_frame = next_frame
         mask = next_mask
         box = next_box
-        histogram = segmentation.update_histogram(histogram, next_histogram)
+        histogram = None
+        histogram = next_histogram
 
         # Perfoormance Misure of the cingle cycle
         cpu_after = psutil.cpu_percent(interval=None)

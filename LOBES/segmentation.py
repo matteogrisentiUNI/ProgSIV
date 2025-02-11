@@ -14,97 +14,6 @@ def simplify_contours(contours, epsilon_factor=0.001):
         simplified.append(approx)
     return simplified
 
-def calculate_contour_descriptors(contour):
-    """
-    Calculate shape descriptors and curvature/edge features for a given contour.
-    """
-    if len(contour.shape) == 3:
-        contour = contour[:, 0, :]  # Flatten to Nx2
-
-    # Compute Moments
-    M = cv2.moments(contour)
-    if M["m00"] != 0:
-        centroid = (M["m10"] / M["m00"], M["m01"] / M["m00"])
-    else:
-        centroid = (0, 0)
-
-    # Compactness
-    area = cv2.contourArea(contour)
-    perimeter = cv2.arcLength(contour, True)
-    compactness = (perimeter ** 2) / (4 * np.pi * area) if area > 0 else 0
-
-    # Eccentricity
-    if len(contour) >= 5:  # Minimum 5 points needed to fit an ellipse
-        _, (major_axis, minor_axis), _ = cv2.fitEllipse(contour)
-        if major_axis < minor_axis:
-            major_axis, minor_axis = minor_axis, major_axis
-        eccentricity = np.sqrt(1 - (minor_axis ** 2 / major_axis ** 2))
-    else:
-        eccentricity = 0
-
-    # Convexity
-    hull = cv2.convexHull(contour)
-    hull_perimeter = cv2.arcLength(hull, True)
-    convexity = perimeter / hull_perimeter if hull_perimeter > 0 else 0
-
-    # Contour Curvature
-    curvature = []
-    k = 3
-    for i in range(len(contour)):
-        prev_point = contour[i - k]
-        curr_point = contour[i]
-        next_point = contour[(i + k) % len(contour)]
-
-        area = 0.5 * np.abs(
-            prev_point[0] * (curr_point[1] - next_point[1]) +
-            curr_point[0] * (next_point[1] - prev_point[1]) +
-            next_point[0] * (prev_point[1] - curr_point[1])
-        )
-        edge1 = np.linalg.norm(prev_point - curr_point)
-        edge2 = np.linalg.norm(curr_point - next_point)
-        edge3 = np.linalg.norm(next_point - prev_point)
-        curvature_value = (4 * area) / (edge1 * edge2 * edge3 + 1e-10)
-        curvature.append(curvature_value)
-
-    # Simplify the contour as a polygon, approximating corners as straight lines (epsilon=0.02*perimeter)
-    epsilon = 0.005 * perimeter
-    approx = cv2.approxPolyDP(contour, epsilon, True)
-    num_corners = len(approx)
-
-    # Get the number of curves (starting from a corner, count how many times does the curve change direction)
-    num_curves = 0
-    prev_angle = None
-    for i in range(len(approx)):
-        prev_point = approx[i - 1][0]
-        curr_point = approx[i][0]
-        next_point = approx[(i + 1) % len(approx)][0]
-
-        # Compute the angle between the edges
-        edge1 = prev_point - curr_point
-        edge2 = next_point - curr_point
-        angle = np.arccos(np.dot(edge1, edge2) / (np.linalg.norm(edge1) * np.linalg.norm(edge2) + 1e-10))
-        if prev_angle is not None:
-            if angle > prev_angle:
-                num_curves += 1
-        prev_angle = angle
-
-    # draw and show the white contour over black background
-    '''img = np.zeros((512, 512, 3), np.uint8)
-    cv2.drawContours(img, [approx], -1, (255, 255, 255), 3)
-    cv2.imshow('image', img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()'''
-
-    return {
-        "Centroid": centroid,
-        "Compactness": compactness,
-        "Eccentricity": eccentricity,
-        "Convexity": convexity,
-        "Contour Curvature": curvature,
-        "Number of Corners": num_corners,
-        "Number of Curves": num_curves,
-    }
-
 def process_contour(contour, distance_threshold=15):
     """
     Process a contour to remove noisy "blob-like" structures based on the given algorithm.
@@ -262,25 +171,33 @@ def remove_histograms(current_histogram, removed_histogram):
         refined_histogram[channel] = current_histogram[channel] - removed_histogram[channel]
     return refined_histogram
 
-def update_histogram(current_histogram, new_histogram, weight=0.7):
+def update_histogram(hist1, hist2, weight=0.7):
     """
-    Updates a histogram represented as a dictionary ('blue', 'green', 'red').
+    Creates an updated histogram by combining two input histograms using a weighted sum.
+    
+    For each bin in each channel, the updated value is computed as:
+        weight * hist1 + (1 - weight) * hist2
 
-    Args:
-        hist1: Current histogram (dictionary with 'blue', 'green', 'red' keys).
-        hist2: Updated histogram (dictionary with 'blue', 'green', 'red' keys).
-        weight: Weight for the updated histogram (default 0.5).
+    Parameters:
+        hist1 (dict): First histogram with keys 'blue', 'green', 'red' (numpy arrays).
+        hist2 (dict): Second histogram with the same structure as hist1.
+        weight (float): Weight factor for hist1 (should be between 0 and 1). 
+                        The contribution of hist2 will be (1 - weight).
 
     Returns:
-        A new histogram where each channel is a weighted average of the corresponding channels in hist1 and hist2.
+        dict: A new histogram with the same keys, where each bin is the weighted sum of the two inputs.
     """
-    updated_histogram = {}
+    if not (0 <= weight <= 1):
+        raise ValueError("Weight must be between 0 and 1.")
+
+    updated_hist = {ch: np.zeros(256, dtype=int) for ch in ['blue', 'green', 'red']}
     for channel in ['blue', 'green', 'red']:
-        updated_histogram[channel] = weight * current_histogram[channel] + (1 - weight) * new_histogram[channel]
-    unsatisfied_up, usatisfied_down = check_constraints(current_histogram, updated_histogram)
-    if usatisfied_down+unsatisfied_up > 500:
-        return current_histogram
-    return updated_histogram
+        for i in range(256):
+            updated_hist[channel][i] = weight * hist1[channel][i] + (1 - weight) * hist2[channel][i]
+
+    #utils.plot_histograms(hist1, updated_hist, 800, 600)
+
+    return updated_hist
 
 def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
     """
@@ -299,18 +216,30 @@ def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
             hist_dict[channel] = np.bincount(channel_pixels, minlength=bins)
     return hist_dict
 
-def check_constraints(hist_ref, hist_current, tolerance=10):
+def check_constraints(h1, h2):
     """
-    Vectorized comparison of two histogram dictionaries.
-    Returns counts of bins where the current histogram is too high or too low.
+    Computes a similarity measure between two histograms (with 'blue', 'green', 'red' channels)
+    using the normalized histogram intersection method.
+    
+    The measure returns 1 if the histograms are identical and 0 if they are completely disjoint.
+    
+    Parameters:
+        h1 (dict): Reference histogram with keys 'blue', 'green', 'red'. Each value should be a numpy array.
+        h2 (dict): Histogram to compare, with the same structure as h1.
+        tolerance (int, optional): Unused in this implementation.
+    
+    Returns:
+        float: A similarity score in the range [0, 1].
     """
-    unsatisfied_up = 0
-    unsatisfied_down = 0
-    for ch in ['blue', 'green', 'red']:
-        diff = hist_current[ch] - hist_ref[ch]
-        unsatisfied_up += np.count_nonzero(diff > tolerance)
-        unsatisfied_down += np.count_nonzero(diff < -tolerance)
-    return unsatisfied_up, unsatisfied_down
+    total_min = 0.0
+    total_max = 0.0
+    for channel in ['blue', 'green', 'red']:
+        total_min += np.sum(np.minimum(h1[channel], h2[channel]))
+        total_max += np.sum(np.maximum(h1[channel], h2[channel]))
+    # Prevent division by zero: if both histograms are empty, consider them identical.
+    #if total_max != 0 and total_min != 0:
+        #print(total_min/total_max)
+    return 1.0 if total_max == 0 else total_min / total_max
 
 
 # --- Superpixel Operations ---
@@ -510,7 +439,7 @@ def slic_segmentation(image, num_superpixels=250, merge_threshold=20,
 
     return merged_labels
 
-def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10, debugPrint=False):
+def histogram_based_refinement(image, initial_labels, pred_hist):
     """
     Refines superpixel segmentation based on histogram constraints.
     
@@ -532,16 +461,16 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10, d
 
     # Precompute each superpixel’s histogram once.
     sp_hist_dict = {lbl: get_superpixel_histogram(image, labels, lbl) for lbl in valid_labels}
-
+    
     # Build the overall histogram by summing all superpixel histograms.
     current_histogram = {ch: np.zeros(256, dtype=int) for ch in ['blue', 'green', 'red']}
     for lbl in valid_labels:
         current_histogram = add_histograms(current_histogram, sp_hist_dict[lbl])
 
     # Compute initial constraint violations.
-    unsatisfied_up, unsatisfied_down = check_constraints(pred_hist, current_histogram, tolerance)
-    if debugPrint:
-        utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
+    old_similarity_measure = check_constraints(pred_hist, current_histogram)
+    #print("Initial Similarity Measure: ", old_similarity_measure)
+    #utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
 
     final_labels = []
     # Use deque for efficient pop from left.
@@ -552,30 +481,34 @@ def histogram_based_refinement(image, initial_labels, pred_hist, tolerance=10, d
         sp_hist = sp_hist_dict[current_label]
         # Simulate removal by subtracting this superpixel’s histogram.
         temp_hist = remove_histograms(current_histogram, sp_hist)
-        new_up, new_down = check_constraints(pred_hist, temp_hist, tolerance)
+        temp_similarity_measure = check_constraints(pred_hist, temp_hist)
         
         # Remove superpixel if it improves (reduces) the "overflow" without worsening underflow.
-        if new_up < unsatisfied_up and new_down <= unsatisfied_down:
+        if temp_similarity_measure > (old_similarity_measure+0.05):
             current_histogram = temp_hist
-            unsatisfied_up, unsatisfied_down = new_up, new_down
+            old_similarity_measure = temp_similarity_measure
         else:
             final_labels.append(current_label)
-    
-    return final_labels
+    #print("Final Similarity Measure: ", old_similarity_measure)
+    #utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
+
+    return final_labels, current_histogram
 
 # --- Main Function ---
-def segmentation (cropped_image, pred_hist, tolerance=15, output_folder=None, debugPrint=False):
+def segmentation (cropped_image, pred_hist):
     #print("Image Shape: ", cropped_image.shape)
 
     # --- SLIC Segmentation ---
     slic_labels = slic_segmentation(cropped_image)
+    #utils.visualize_superpixels_with_random_colors(cropped_image, slic_labels)
 
     # --- Region Refinement ---
-    final_labels = histogram_based_refinement(cropped_image, slic_labels, pred_hist, tolerance=tolerance, debugPrint=debugPrint)
+    final_labels, next_histogram = histogram_based_refinement(cropped_image, slic_labels, pred_hist)
+    #utils.plot_histograms(pred_hist, next_histogram, width=800, height=600)
+    final_histogram = update_histogram(pred_hist, next_histogram)
+    #utils.show_translucent_mask(cropped_image, slic_labels, final_labels)
  
     # --- Final Visualization ---
-    mask = create_mask(slic_labels, final_labels)
+    final_mask = create_mask(slic_labels, final_labels)
 
-    #print("Final Mask Shape: ", mask.shape)
-
-    return mask
+    return final_mask, final_histogram
