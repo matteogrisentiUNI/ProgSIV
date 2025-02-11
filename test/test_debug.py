@@ -4,7 +4,7 @@ import psutil
 import glob
 import numpy as np
 import os
-from ObjectTracker import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
+from LOBES import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
 
 
 

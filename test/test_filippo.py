@@ -3,7 +3,7 @@ import time
 import psutil
 import numpy as np
 import os
-from ObjectTracker import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
+from LOBES import detection, mask_motion_estimation, segmentation, feature_extraction, utils, mask_refinement
 
 def detection_complete(frame, object_class, target_pixels=150000):
     print('- DETECTION ')
@@ -216,6 +216,4 @@ if __name__ == "__main__":
     object_detected = 'boat'
 
     test_discreto_video(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=True)
-
-
 

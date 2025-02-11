@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="object_tracker",
-    version="0.1.0",
+    name="LOB&S",
+    version="0.1.1",
     packages=find_packages(),
     install_requires=[
         "ultralytics",
@@ -14,7 +14,7 @@ setup(
         "tqdm"
     ],
     author="Adami Filippo & Grisenti Matteo",
-    description="Efficient Object Tracking Library using YOLO and Image Processing",
+    description="Low-Level Object-Tracking & Segmentation Library using YOLO and Image Processing",
     url='https://github.com/matteogrisenti/ProgSIV',
     classifiers=[
         'Programming Language :: Python :: 3',

@@ -4,7 +4,7 @@ import psutil
 import glob
 import numpy as np
 import os
-from ObjectTracker import detection, mask_motion_estimation, motion_estimation
+from LOBES import detection, mask_motion_estimation, motion_estimation
 
 def calculate_mean_run(file_path):
     
