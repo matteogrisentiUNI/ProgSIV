@@ -1,4 +1,4 @@
-# Low Level Object Tracking & Segmentation (LOB&S)
+# Low-Level Object-Tracking & Segmentation (LOB&S)
 A Python library for efficient object tracking and segmentation using low-level video and image processing techniques.
 
 # Features
@@ -29,17 +29,54 @@ pip install git+https://github.com/matteogrisenti/ProgSIV.git
   - Histogram-based refinement for background removal.
   - Contour-based refinement for final mask creation.
 
-# Examples
-I do not have enough information to write this.
+# Example use
+```python
+import os
+from LOBES import LOBES
+
+if __name__ == "__main__":
+
+    video_path = 'test/Video/Car4.mp4'
+    output_folder = os.path.join('test/Global/Car4')
+    object_detected = 'car'
+
+    LOBES(video_path, object_detected, vertical=False, output_folder=output_folder,  saveVideo=True, debugPrint=False)
+```
+
+# Core Functions
+```python
+# main function that performes Object Tracking and Segmentation on the input video
+def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
+```
+```python
+# Performs YOLO v8_seg detection and segmentation on an image
+def detection(frame, object_class): return masks, boxes
+```
+```python
+# motion estimation function, performs targeted motion estimation using Lucas Kanade optical flow to predict the position of a specific object on the next frame
+def mask_motion_estimation(previus_frame, next_frame, mask): return previous_points, next_points, affine_matrix
+```
+```python
+# segmentation function, performs slic, histogram based refinement and contour refinement to extract the subject from an image
+def segmentation (cropped_image, pred_hist, debugPrint=False): return mask
+```
+*The library also includes more than 30 helper functions*
 
 # Performance
-I do not have enough information to write this.
+The main function performance, on a 300$ laptop, is the following:
+```
+Average CPU usage: 14%
+Average Memory usage: 79%
+Average time per frame: 0.24 seconds
+Motion estimation approximate accuracy: 95%
+Segmentation approximate accuracy: 35-40%
+```
 
 # Limitations
 - YOLO v8_seg detection is pretrained with COCO dateset and may not generalize to all scenarios.
 - Mask refinement and segmentation depend on the quality of initial detection and input video.
 - Motion estimation may struggle with rapid or non-linear object movements.
-- Segmentation may diverge for higly dynamic and complex scenarios.
+- Segmentation is highly dependent on the accuracy of the predicted bounding box and may thus diverge for higly dynamic and complex scenarios.
 
 # Contact
 GitHub Repository: [ProgSIV](https://github.com/matteogrisenti/ProgSIV)

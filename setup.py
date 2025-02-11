@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "ultralytics",
-        "opencv-python",
+        "opencv-contrib-python",
         "numpy",
         "psutil",
         "matplotlib",

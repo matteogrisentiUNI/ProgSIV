@@ -8,7 +8,7 @@ from LOBES import detection, mask_motion_estimation, segmentation, feature_extra
 
 # DETECTION PHASE: Yolo Detection + Mask Refinment
 def detection_complete(frame, object_class, target_pixels=150000):
-    print('- DETECTION ')
+    #print('- DETECTION ')
     try:
         masks, boxes = detection(frame, object_class)
     except Exception as e:
@@ -24,7 +24,7 @@ def detection_complete(frame, object_class, target_pixels=150000):
     box = boxes[0].astype(np.float32)
 
 # - MASK REFINEMENT 
-    print('- MASK REFINEMENT ')
+    #print('- MASK REFINEMENT ')
     try:
         refined_mask = mask_refinement.refine_mask(frame, mask)
     except Exception as e:
@@ -66,19 +66,34 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 
     bounded_next_frame = next_frame[bb_y1:bb_y2, bb_x1:bb_x2]
 
+    if debugPrint:
+        utils.debugPrintSegmentation(blurred_next_frame, next_mask)
+
 # - CROP FRAME
     try:
         cropped_next_frame, scaling_factors = utils.rescale(bounded_next_frame, 150000)
     except Exception as e:
         print(f"\tERROR: {e}")
         return
+    
+    if debugPrint:
+        utils.debugPrintFrameCrop(cropped_next_frame)
+    
 
 # - SEGMENTATION
-    # Apply Gaussian blur
-    blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
+    try:
+        # Apply Gaussian blur
+        blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
 
-    # Extract the region of interest
-    next_mask = segmentation.segmentation(blurred_next_frame, prev_histogram, debugPrint=debugPrint)
+        # Extract the region of interest
+        next_mask = segmentation.segmentation(blurred_next_frame, prev_histogram, output_folder=output_folder, debugPrint=debugPrint)
+
+    except Exception as e:
+        print(f"\tSEGMENTATION ERROR: {e}")
+        return    
+    
+    if debugPrint:
+        utils.debugPrintSegmentation(blurred_next_frame, next_mask)
 
 #   RESCALING: we have to rescale the mask to the original frame dimension
     #print('- RESCALING')
@@ -103,13 +118,13 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
     # 4: shrink the box in order to be closer to the final mask
     next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
 
-    next_histogram = prev_histogram#feature_extraction.histogram_extraction(next_frame, next_mask)
+    next_histogram = feature_extraction.histogram_extraction(next_frame, next_mask)
 
     return next_mask, next_box, next_histogram
 
 
 # LOB&S 
-def LOB_S(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
+def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveVideo=False, debugPrint=False):
     cap = cv2.VideoCapture(video_path)
     os.makedirs(output_folder, exist_ok=True)
     performance_log_path = os.path.join(output_folder, 'performance.txt')
@@ -155,8 +170,8 @@ def LOB_S(video_path, object_detected, vertical=False, output_folder=None, saveV
     debugPrint = False
     i=1
     while cap.isOpened():
-        print(i)
-        i += 1
+        #print(i)
+        #i += 1
 
         # Start counter for the performance
         frame_start_time = time.time()
@@ -213,3 +228,84 @@ def LOB_S(video_path, object_detected, vertical=False, output_folder=None, saveV
         out.release()
     cv2.destroyAllWindows()
 
+def LOBES_debugVersion(video_path, object_detected, output_folder=None, saveVideo=False, startFrameDebug=None, endFrameDebug=None):
+    cap = cv2.VideoCapture(video_path)
+    os.makedirs(output_folder, exist_ok=True)
+
+    if saveVideo:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        out = cv2.VideoWriter(os.path.join(output_folder, 'tracked_video_v3.mp4'), fourcc, fps, (frame_width, frame_height))
+
+
+    ret, previous_frame = cap.read()
+
+
+## --- DETECTION --- ##
+    try:
+        mask, box, histogram = detection_complete(previous_frame, object_detected)
+    except:
+        return
+
+    # Save the Output 
+    if saveVideo:
+        output_frame = utils.draw_mask(previous_frame, box, mask, object_detected)
+        resized_output_frame = cv2.resize(output_frame, (frame_width, frame_height), interpolation=cv2.INTER_AREA)
+        out.write(resized_output_frame)
+
+
+## --- TRAKING --- ##
+    
+    debugPrint = False      # Activate all the debug print ( A LOT !! )
+    i=0
+
+    while cap.isOpened():
+        i += 1
+        print(i)
+
+        ret, next_frame = cap.read()        # Take the next frame to analize
+        if not ret:
+            print("Video Ended")
+            break
+        
+        if(startFrameDebug is not None):
+            if(endFrameDebug is not None):
+                if i>= startFrameDebug and i<=endFrameDebug:   debugPrint = True
+                else:                                          debugPrint = False
+            else:
+                if i>= startFrameDebug:                        debugPrint = True
+                else:                                          debugPrint = False
+        
+        
+        try: 
+            next_mask, next_box, next_histogram = tracking(previous_frame, histogram, mask, box, next_frame, output_folder=output_folder, debugPrint=debugPrint)
+
+            # Save next frame with bounding box an mask in the output video
+            if saveVideo:
+                output_frame = utils.draw_mask(next_frame, next_box, next_mask, object_detected, color_mask=(255, 0, 0))
+                resized_output_frame = cv2.resize(output_frame, (frame_width, frame_height), interpolation=cv2.INTER_AREA)
+                
+                if debugPrint:
+                    cv2.imshow('FINAL FRAME', resized_output_frame)
+                    cv2.waitKey(0)
+                    cv2.destroyAllWindows()
+                
+                out.write(resized_output_frame)
+
+            # Update the variable for the next cycle 
+            previous_frame = next_frame
+            mask = next_mask
+            box = next_box
+            histogram = segmentation.update_histogram(histogram, next_histogram)
+        
+        except:
+            if saveVideo:
+                resized_output_frame = cv2.resize(next_frame, (frame_width, frame_height), interpolation=cv2.INTER_AREA) 
+                out.write(resized_output_frame)
+
+    cap.release()
+    if saveVideo:
+        out.release()
+    cv2.destroyAllWindows()

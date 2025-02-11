@@ -15,4 +15,3 @@ LOBES.egg-info/dependency_links.txt
 LOBES.egg-info/requires.txt
 LOBES.egg-info/top_level.txt
 test/test.py
-test/testMotionEstimation.py
