@@ -69,7 +69,7 @@ Average CPU usage: 14%
 Average Memory usage: 79%
 Average time per frame: 0.24 seconds
 Motion estimation approximate accuracy: 95%
-Segmentation approximate accuracy: 35-40%
+Segmentation approximate accuracy: 55-60%
 ```
 
 # Limitations
