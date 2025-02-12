@@ -525,7 +525,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist):
         temp_similarity_measure = compare_histograms(pred_hist, temp_hist)
         #print("Current Similarity Measure: ", temp_similarity_measure)
         # Remove superpixel if it improves (reduces) the "overflow" without worsening underflow.
-        if temp_similarity_measure < (old_similarity_measure-0.005):
+        if temp_similarity_measure < old_similarity_measure:
             current_histogram = temp_hist
             old_similarity_measure = temp_similarity_measure
         else:

@@ -44,29 +44,18 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, prev_A, next_frame
     sf=0.85
     try:
         _, _, A = mask_motion_estimation( prev_frame, next_frame, mask=prev_mask )
+        scale_x = np.sqrt(A[0, 0]**2 + A[0, 1]**2)
+        scale_y = np.sqrt(A[1, 0]**2 + A[1, 1]**2)
+        if scale_x!=0 and scale_y!=0:
+            prev_scale_x = np.sqrt(A[0, 0]**2 + prev_A[0, 1]**2)
+            prev_scale_y = np.sqrt(A[1, 0]**2 + prev_A[1, 1]**2)      
+            if  scale_x < prev_scale_x*sf or scale_x > prev_scale_x*(1/sf) or scale_y < prev_scale_y*sf or scale_y > prev_scale_y*(1/sf):
+                print("kept previous scale matrix")
+                A = prev_A 
     except Exception as e:
         print(f"\tERROR: {e}")
-        A = prev_A
-    scale_x = np.sqrt(A[0, 0]**2 + A[0, 1]**2)
-    scale_y = np.sqrt(A[1, 0]**2 + A[1, 1]**2)
-    if scale_x!=0 and scale_y!=0:
-        prev_scale_x = np.sqrt(A[0, 0]**2 + prev_A[0, 1]**2)
-        prev_scale_y = np.sqrt(A[1, 0]**2 + prev_A[1, 1]**2)      
-        if  scale_x < prev_scale_x*sf or scale_x > prev_scale_x*(1/sf) or scale_y < prev_scale_y*sf or scale_y > prev_scale_y*(1/sf):
-            print("kept previous scale matrix")
-            A = prev_A
-
-    '''t_prev = np.array([prev_A[0, 2], prev_A[1, 2]])
-    t_curr = np.array([A[0, 2], A[1, 2]])
-    mag_prev = np.linalg.norm(t_prev)
-    mag_curr = np.linalg.norm(t_curr)
-    #print("translation proportion: ",mag_curr/mag_prev)
-    if mag_prev > 0 and ((mag_curr / mag_prev) < 0.5 or (mag_curr / mag_prev) > (1/0.5)):
-        print("kept previous translation matrix")
-        A = prev_A'''
-            
-
-    
+        A = prev_A         
+ 
     next_box = utils.predict_bounding_box_final(next_frame, prev_box, A)
     bb_x1 = int(next_box[0])
     bb_y1 = int(next_box[1])
@@ -83,20 +72,21 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, prev_A, next_frame
 
         # Decide if the output is valid or not
         next_mask, next_histogram, similarity = segmentation.segmentation(blurred_next_frame, prev_histogram)
-        #print(similarity)
-        if similarity > 0.29:
+        print(similarity)
+        previous_mask_pixels = np.sum(prev_mask)
+        next_mask_pixels = np.sum(next_mask)
+        if similarity > 0.31 or previous_mask_pixels/next_mask_pixels > 1.15 or previous_mask_pixels/next_mask_pixels < 0.85:
             rows, cols = prev_mask.shape
             next_mask = cv2.warpAffine(prev_mask, A, (cols, rows))
             next_histogram = prev_histogram
-
+        else:
+            # 3: ensure the mask is of the same size of the image, otherwise add a padding to fill the missing pixels
+            next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
+        
     except Exception as e:
         print(f"\tSEGMENTATION ERROR: {e}")
         return    
     
-
-    # 3: ensure the mask is of the same size of the image, otherwise add a padding to fill the missing pixels
-    next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
-
     # 4: shrink the box in order to be closer to the final mask
     next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
 
@@ -148,13 +138,10 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
 
     # Activate all the debug print ( A LOT !! )
     debugPrint = False
-    i=1
     # set prev_A as an identity affine matrix
     prev_A = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
-    while cap.isOpened():
-        #print(i)
-        #i += 1
 
+    while cap.isOpened():
         # Start counter for the performance
         frame_start_time = time.time()
         cpu_before = psutil.cpu_percent(interval=None)
