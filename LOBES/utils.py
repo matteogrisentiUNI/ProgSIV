@@ -332,7 +332,6 @@ def resize_mask_with_padding(mask, box, target_height, target_width):
 
     # Resize the mask to the (clipped) box dimensions
     resized_mask = cv2.resize(mask, (box_width, box_height))
-
     # Create a black image of the target frame size
     padded_mask = np.zeros((target_height, target_width), dtype=np.uint8)
 
@@ -360,140 +359,81 @@ def shrink_box_to_mask(resized_box, mask, threshold=5):
     height = (max_y - min_y) + 2 * threshold
 
     # Definisci il nuovo bounding box
-    x1 = max(centroid[0] - width*1.15 // 2, 0)
-    x2 = min(centroid[0] + width*1.15 // 2, mask.shape[1])
-    y1 = max(centroid[1] - height*1.15 // 2, 0)
-    y2 = min(centroid[1] + height*1.15 // 2, mask.shape[0])
+    x1 = max(centroid[0] - width*1.05 // 2, 0)
+    x2 = min(centroid[0] + width*1.05 // 2, mask.shape[1])
+    y1 = max(centroid[1] - height*1.05 // 2, 0)
+    y2 = min(centroid[1] + height*1.05 // 2, mask.shape[0])
 
     return np.array([ int(x1), int(y1), int(x2), int(y2) ])
 
-def predict_bounding_box_final(image, prev_image, box, affine_matrix, epsilon=0.5, alpha=0.6, hist_thresh=0.5):
+def predict_bounding_box_final(image, box, affine_matrix, mr=1):
     """
-    Predicts a bounding box in the current frame using a multi-cue approach.
-    
-    It combines:
-      1. Affine Transformation: Transforms the original box’s corners.
-      2. Center-Based Scaling: Estimates a new box by scaling the original box.
-      3. Optical Flow: Adjusts the box based on motion of the object’s center.
-      4. Histogram Consistency: Checks if the predicted region has similar appearance.
-      5. Blending: Combines the predictions using a weighted average.
+    Transforms a bounding box with an affine matrix and enlarges it.
+    If the predicted scaling is too far off from the original size,
+    the box is instead translated (using the affine translation) and then
+    expanded in each direction by a margin proportional to the absolute
+    difference between the predicted and original dimensions.
     
     Parameters:
-      image        : Current frame (BGR).
-      prev_image   : Previous frame (BGR).
-      box          : Previous bounding box [x_min, y_min, x_max, y_max].
-      affine_matrix: 2x3 affine transformation matrix (e.g., from motion estimation).
-      epsilon      : Padding/uncertainty factor (default 0.5).
-      alpha        : Blending weight between the optical-flow–adjusted box and affine box (default 0.6).
-      hist_thresh  : Histogram correlation threshold (default 0.5). If similarity is below this, 
-                     the function falls back to the affine prediction.
+      image         : Current frame (BGR) for clipping.
+      box           : Previous bounding box [x_min, y_min, x_max, y_max].
+      affine_matrix : 2x3 affine transformation matrix.
+      mr            : Margin factor to enlarge the box in each direction.
     
     Returns:
-      final_box    : Predicted bounding box [x_min, y_min, x_max, y_max] as an integer NumPy array.
+      final_box   : Transformed and expanded bounding box as an int32 NumPy array.
     """
-    # Convert input box to float for calculations.
+    # Convert original box to float and get image size.
     box = np.array(box, dtype=np.float32)
-    im_height, im_width = image.shape[:2]
+    im_h, im_w = image.shape[:2]
+    orig_width = box[2] - box[0]
+    orig_height = box[3] - box[1]
     
-    # --------- Step 1: Affine Transformation Prediction ---------
-    # Define the four corners of the original box.
+    # Compute predicted box via affine transformation.
     corners = np.array([
-        [box[0], box[1]],  # top-left
-        [box[2], box[1]],  # top-right
-        [box[2], box[3]],  # bottom-right
-        [box[0], box[3]]   # bottom-left
+        [box[0], box[1]],
+        [box[2], box[1]],
+        [box[2], box[3]],
+        [box[0], box[3]]
     ], dtype=np.float32)
-    
-    # Transform the corners with the affine matrix.
-    corners_trans = cv2.transform(corners.reshape(-1, 1, 2), affine_matrix).reshape(-1, 2)
-    
-    x_min_affine = np.min(corners_trans[:, 0])
-    y_min_affine = np.min(corners_trans[:, 1])
-    x_max_affine = np.max(corners_trans[:, 0])
-    y_max_affine = np.max(corners_trans[:, 1])
-    
-    # Add padding proportional to the increase in size.
-    pad_x = epsilon * max(0, (x_max_affine - x_min_affine) - (box[2] - box[0]))
-    pad_y = epsilon * max(0, (y_max_affine - y_min_affine) - (box[3] - box[1]))
-    box_affine = np.array([x_min_affine - pad_x, y_min_affine - pad_y, 
-                             x_max_affine + pad_x, y_max_affine + pad_y], dtype=np.float32)
-    
-    # --------- Step 2: Center-Based Scaling Prediction ---------
-    # Compute the center and dimensions of the original box.
-    cx = (box[0] + box[2]) / 2.0
-    cy = (box[1] + box[3]) / 2.0
-    w = box[2] - box[0]
-    h = box[3] - box[1]
-    
-    # Estimate scaling factors from the affine matrix.
-    a, b, _ = affine_matrix[0]
-    c, d, _ = affine_matrix[1]
-    scale_x = np.sqrt(a*a + b*b)
-    scale_y = np.sqrt(c*c + d*d)
-    scale_avg = (scale_x + scale_y) / 2.0
-    
-    # Compute a scaled box with added uncertainty.
-    new_w = w * scale_avg * (1 + epsilon)
-    new_h = h * scale_avg * (1 + epsilon)
-    box_center = np.array([cx - new_w/2.0, cy - new_h/2.0, cx + new_w/2.0, cy + new_h/2.0], dtype=np.float32)
-    
-    # --------- Step 3: Optical Flow Motion Correction ---------
-    # Estimate the displacement of the object's center using optical flow.
-    prev_gray = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
-    curr_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    prev_pt = np.array([[cx, cy]], dtype=np.float32).reshape(-1, 1, 2)
-    next_pt, status, _ = cv2.calcOpticalFlowPyrLK(prev_gray, curr_gray, prev_pt, None)
-    
-    if status[0][0] == 1:
-        dx = next_pt[0,0,0] - cx
-        dy = next_pt[0,0,1] - cy
+    transformed = cv2.transform(corners.reshape(-1, 1, 2), affine_matrix).reshape(-1, 2)
+    x_min_pred = np.min(transformed[:, 0])
+    y_min_pred = np.min(transformed[:, 1])
+    x_max_pred = np.max(transformed[:, 0])
+    y_max_pred = np.max(transformed[:, 1])
+    max_dispacement_x  = max(x_max_pred - box[2], box[0] - x_min_pred)
+    max_dispacement_y  = max(y_max_pred - box[3], box[1] - y_min_pred)
+    pred_width = x_max_pred - x_min_pred
+    pred_height = y_max_pred - y_min_pred
+
+    # If the predicted width or height is too far off,
+    # (i.e. outside [0.85, 1.15] times the original),
+    # then use only the translation from the affine matrix.
+    use_translation_only = (
+        pred_width < 0.85 * orig_width or pred_width > 1.15 * orig_width or
+        pred_height < 0.85 * orig_height or pred_height > 1.15 * orig_height
+    )
+
+    if use_translation_only:
+        pred_height = orig_height
+        pred_width = orig_width
+        xmin = box[0]
+        ymin = box[1]
     else:
-        dx, dy = 0, 0
-    
-    # Shift the center-based box using the estimated motion.
-    box_flow = box_center + np.array([dx, dy, dx, dy], dtype=np.float32)
-    
-    # --------- Step 4: Histogram Consistency Check ---------
-    # Extract the histogram of the object in the previous frame.
-    x1_prev, y1_prev, x2_prev, y2_prev = box.astype(np.int32)
-    prev_obj = prev_image[y1_prev:y2_prev, x1_prev:x2_prev]
-    if prev_obj.size == 0:
-        prev_hist = None
-    else:
-        prev_hist = cv2.calcHist([prev_obj], [0, 1, 2], None, [8, 8, 8], [0,256,0,256,0,256])
-        prev_hist = cv2.normalize(prev_hist, prev_hist).flatten()
-    
-    # Extract histogram from the region predicted by optical flow.
-    box_flow_int = box_flow.astype(np.int32)
-    x1_flow, y1_flow, x2_flow, y2_flow = box_flow_int
-    x1_flow = max(0, x1_flow)
-    y1_flow = max(0, y1_flow)
-    x2_flow = min(im_width, x2_flow)
-    y2_flow = min(im_height, y2_flow)
-    curr_obj = image[y1_flow:y2_flow, x1_flow:x2_flow]
-    if curr_obj.size == 0:
-        curr_hist = None
-    else:
-        curr_hist = cv2.calcHist([curr_obj], [0, 1, 2], None, [8, 8, 8], [0,256,0,256,0,256])
-        curr_hist = cv2.normalize(curr_hist, curr_hist).flatten()
-    
-    hist_sim = 1.0  # Assume high similarity by default.
-    if prev_hist is not None and curr_hist is not None:
-        hist_sim = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_CORREL)
-    
-    # If the predicted region’s appearance is too dissimilar, fall back on the affine prediction.
-    if hist_sim < hist_thresh:
-        box_flow = box_affine.copy()
-    
-    # --------- Step 5: Blending and Final Output ---------
-    # Blend the motion-corrected (optical flow) box with the affine-based prediction.
-    final_box = alpha * box_flow + (1 - alpha) * box_affine
-    
-    # Clip the box coordinates to lie within image boundaries.
-    final_box[0] = np.clip(final_box[0], 0, im_width - 1)
-    final_box[1] = np.clip(final_box[1], 0, im_height - 1)
-    final_box[2] = np.clip(final_box[2], 0, im_width - 1)
-    final_box[3] = np.clip(final_box[3], 0, im_height - 1)
+        # Otherwise, use the predicted box.
+        xmin = x_min_pred
+        ymin = y_min_pred
+
+    # Compute the final box.
+    x_min_final = max(0, int((xmin-max_dispacement_x*0.4)*0.85))
+    y_min_final = max(0, int((ymin-max_dispacement_y*0.4)*0.85))
+    x_max_final = min(int((xmin+pred_width+max_dispacement_x*0.4)*1.15), im_w - 1)
+    y_max_final = min(int((ymin+pred_height+max_dispacement_y*0.4)*1.15), im_h - 1)
+
+    # Clip the final coordinates to the image boundaries.
+    final_box = np.array([
+        x_min_final, y_min_final, x_max_final, y_max_final
+    ], dtype=np.float32)
     
     return final_box.astype(np.int32)
 

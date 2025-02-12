@@ -7,7 +7,7 @@ from LOBES import detection, mask_motion_estimation, segmentation, feature_extra
 
 
 # DETECTION PHASE: Yolo Detection + Mask Refinment
-def detection_complete(frame, object_class, target_pixels=50000):
+def detection_complete(frame, object_class):
     #print('- DETECTION ')
     try:
         masks, boxes = detection(frame, object_class)
@@ -34,31 +34,40 @@ def detection_complete(frame, object_class, target_pixels=50000):
     mask = refined_mask
 
     histogram = feature_extraction.histogram_extraction(frame, mask)
-    # Compute the total number of pixels (iterate over one channel)
-    total_pixels = np.sum(histogram['blue'])
-    
-    # Compute the scaling factor
-    scaling_factor = target_pixels / total_pixels
-    
-    # Rescale each channel
-    for channel in histogram:
-        for i in range(len(histogram[channel])):
-            value = histogram[channel][i]
-            histogram[channel][i] = int(value * scaling_factor)
 
     return mask, box, histogram
 
 # TRACKING PHASE: Motion + Segmentation
-def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output_folder=None, debugPrint=False):
+def tracking(prev_frame, prev_histogram, prev_mask, prev_box, prev_A, next_frame, output_folder=None, debugPrint=False):
 # - MOTION
     #print('- MOTION ESTIMATION')
+    sf=0.85
     try:
         _, _, A = mask_motion_estimation( prev_frame, next_frame, mask=prev_mask )
     except Exception as e:
         print(f"\tERROR: {e}")
-        return
+        A = prev_A
+    scale_x = np.sqrt(A[0, 0]**2 + A[0, 1]**2)
+    scale_y = np.sqrt(A[1, 0]**2 + A[1, 1]**2)
+    if scale_x!=0 and scale_y!=0:
+        prev_scale_x = np.sqrt(A[0, 0]**2 + prev_A[0, 1]**2)
+        prev_scale_y = np.sqrt(A[1, 0]**2 + prev_A[1, 1]**2)      
+        if  scale_x < prev_scale_x*sf or scale_x > prev_scale_x*(1/sf) or scale_y < prev_scale_y*sf or scale_y > prev_scale_y*(1/sf):
+            print("kept previous scale matrix")
+            A = prev_A
+
+    '''t_prev = np.array([prev_A[0, 2], prev_A[1, 2]])
+    t_curr = np.array([A[0, 2], A[1, 2]])
+    mag_prev = np.linalg.norm(t_prev)
+    mag_curr = np.linalg.norm(t_curr)
+    #print("translation proportion: ",mag_curr/mag_prev)
+    if mag_prev > 0 and ((mag_curr / mag_prev) < 0.5 or (mag_curr / mag_prev) > (1/0.5)):
+        print("kept previous translation matrix")
+        A = prev_A'''
+            
+
     
-    next_box = utils.predict_bounding_box_final(next_frame, prev_frame, prev_box, A)
+    next_box = utils.predict_bounding_box_final(next_frame, prev_box, A)
     bb_x1 = int(next_box[0])
     bb_y1 = int(next_box[1])
     bb_x2 = int(next_box[2])
@@ -66,59 +75,32 @@ def tracking(prev_frame, prev_histogram, prev_mask, prev_box, next_frame, output
 
     bounded_next_frame = next_frame[bb_y1:bb_y2, bb_x1:bb_x2]
 
-    if debugPrint:
-        utils.debugPrintSegmentation(blurred_next_frame, next_mask)
-
-# - CROP FRAME
-    try:
-        cropped_next_frame, scaling_factors = utils.rescale(bounded_next_frame, 150000)
-    except Exception as e:
-        print(f"\tERROR: {e}")
-        return
-    
-    if debugPrint:
-        utils.debugPrintFrameCrop(cropped_next_frame)
-    
 
 # - SEGMENTATION
     try:
         # Apply Gaussian blur
-        blurred_next_frame = cv2.GaussianBlur(cropped_next_frame, (3, 3), sigmaX=0)
+        blurred_next_frame = cv2.GaussianBlur(bounded_next_frame, (3, 3), sigmaX=0)
 
-        # Extract the region of interest
-        next_mask, next_histogram = segmentation.segmentation(blurred_next_frame, prev_histogram)
+        # Decide if the output is valid or not
+        next_mask, next_histogram, similarity = segmentation.segmentation(blurred_next_frame, prev_histogram)
+        #print(similarity)
+        if similarity > 0.29:
+            rows, cols = prev_mask.shape
+            next_mask = cv2.warpAffine(prev_mask, A, (cols, rows))
+            next_histogram = prev_histogram
 
     except Exception as e:
         print(f"\tSEGMENTATION ERROR: {e}")
         return    
     
-    if debugPrint:
-        utils.debugPrintSegmentation(blurred_next_frame, next_mask)
 
-#   RESCALING: we have to rescale the mask to the original frame dimension
-    #print('- RESCALING')
-    # 1: Resize the mask to the origina pixel quantity
-    original_width = int(next_mask.shape[1] / scaling_factors)
-    original_height = int(next_mask.shape[0] / scaling_factors)
-    next_mask = cv2.resize(next_mask, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
-    
-    # Count the number of pixels of the original mask
-    prev_pixel_count = cv2.countNonZero(prev_mask)
-    new_pixel_count = cv2.countNonZero(next_mask)
-    #print(f"Number of pixels in the mask: {prev_pixel_count}")
-    #print(f"Number of pixels in the rescaled mask: {new_pixel_count}")
-    if new_pixel_count < prev_pixel_count*0.95 or new_pixel_count > prev_pixel_count*1.05:
-        rows, cols = prev_mask.shape
-        # Apply the affine matrix to the previous mask
-        next_mask = cv2.warpAffine(prev_mask, A, (cols, rows), flags=cv2.INTER_NEAREST)
-    else:
-        # Adding black padding in order the mask match the dimension of the original frame
-        next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
+    # 3: ensure the mask is of the same size of the image, otherwise add a padding to fill the missing pixels
+    next_mask = utils.resize_mask_with_padding(next_mask, next_box, next_frame.shape[0], next_frame.shape[1])
 
     # 4: shrink the box in order to be closer to the final mask
     next_box = utils.shrink_box_to_mask(next_box, next_mask, threshold=5)
 
-    return next_mask, next_box, next_histogram
+    return next_mask, next_box, next_histogram, A
 
 
 # LOB&S 
@@ -167,6 +149,8 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
     # Activate all the debug print ( A LOT !! )
     debugPrint = False
     i=1
+    # set prev_A as an identity affine matrix
+    prev_A = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
     while cap.isOpened():
         #print(i)
         #i += 1
@@ -185,8 +169,8 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
             break
 
 ## --- TRAKING --- ##
-        next_mask, next_box, next_histogram = tracking(previous_frame, histogram, mask, box, next_frame, output_folder=output_folder, debugPrint=debugPrint)
-
+        next_mask, next_box, next_histogram, next_A = tracking(previous_frame, histogram, mask, box, prev_A, next_frame, output_folder=output_folder, debugPrint=debugPrint)
+        
         # Save next frame with bounding box an mask in the output video
         if saveVideo:
             output_frame = utils.draw_mask(next_frame, next_box, next_mask, object_detected, color_mask=(255, 0, 0))
@@ -197,8 +181,8 @@ def LOBES(video_path, object_detected, vertical=False, output_folder=None, saveV
         previous_frame = next_frame
         mask = next_mask
         box = next_box
-        histogram = None
         histogram = next_histogram
+        prev_A = next_A
 
         # Perfoormance Misure of the cingle cycle
         cpu_after = psutil.cpu_percent(interval=None)

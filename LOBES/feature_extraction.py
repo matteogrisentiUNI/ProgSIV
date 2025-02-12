@@ -47,9 +47,6 @@ def extract_region_of_interest_with_mask(image_path, mask, box, output_folder):
     
     mask_path = os.path.join(output_folder, "2_Region.jpg") 
     cv2.imwrite(mask_path, mask)
-
-    # Find contours in the mask
-    contours = contourns_extraction(mask, output_folder)
     
     # Convert the image to BGRA (add alpha channel)
     image_bgra = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
@@ -64,7 +61,7 @@ def extract_region_of_interest_with_mask(image_path, mask, box, output_folder):
     #Calculate the color histogram of the ROI 
     color_histogram = histogram_extraction(image_bgra, mask, output_folder)
     
-    return contours, mask, color_histogram
+    return mask, color_histogram
 
 # Extract the contourns from an image and a mask
 def histogram_extraction(image, mask ):

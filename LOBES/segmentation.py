@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from collections import defaultdict, deque
 from scipy.ndimage import gaussian_filter1d
-from LOBES import utils
+from LOBES import utils, feature_extraction
 
 # --- Contour Operations ---
 def simplify_contours(contours, epsilon_factor=0.001):
@@ -166,9 +166,11 @@ def remove_histograms(current_histogram, removed_histogram):
     Returns:
         A new histogram where each channel is the sum of the corresponding channels in hist1 and hist2.
     """
-    refined_histogram = {}
+    refined_histogram = {ch: np.zeros(256, dtype=int) for ch in ['blue', 'green', 'red']}
     for channel in ['blue', 'green', 'red']:
-        refined_histogram[channel] = current_histogram[channel] - removed_histogram[channel]
+        for i in range(256):
+            refined_histogram[channel][i] = current_histogram[channel][i] - removed_histogram[channel][i]
+
     return refined_histogram
 
 def update_histogram(hist1, hist2, weight=0.7):
@@ -216,7 +218,7 @@ def get_superpixel_histogram(image, labels, superpixel_id, bins=256):
             hist_dict[channel] = np.bincount(channel_pixels, minlength=bins)
     return hist_dict
 
-def check_constraints(h1, h2):
+
     """
     Computes a similarity measure between two histograms (with 'blue', 'green', 'red' channels)
     using the normalized histogram intersection method.
@@ -241,6 +243,42 @@ def check_constraints(h1, h2):
         #print(total_min/total_max)
     return 1.0 if total_max == 0 else total_min / total_max
 
+def compare_histograms(hist1, hist2,  method=cv2.HISTCMP_BHATTACHARYYA):
+    """
+    Compare two BGR histograms stored as dictionaries.
+    
+    Parameters:
+        hist1, hist2 : Dictionaries with 'blue', 'green', 'red' keys.
+        method       : OpenCV histogram comparison method.
+    
+    Returns:
+        Single similarity score (average of B, G, R comparisons).
+    """
+    # Convert histograms to NumPy arrays (column vectors)
+    hist_b1 = np.array(hist1['blue'], dtype=np.float32).reshape(-1, 1)
+    hist_g1 = np.array(hist1['green'], dtype=np.float32).reshape(-1, 1)
+    hist_r1 = np.array(hist1['red'], dtype=np.float32).reshape(-1, 1)
+
+    hist_b2 = np.array(hist2['blue'], dtype=np.float32).reshape(-1, 1)
+    hist_g2 = np.array(hist2['green'], dtype=np.float32).reshape(-1, 1)
+    hist_r2 = np.array(hist2['red'], dtype=np.float32).reshape(-1, 1)
+
+    # Normalize histograms
+    cv2.normalize(hist_b1, hist_b1, 0, 1, cv2.NORM_MINMAX)
+    cv2.normalize(hist_g1, hist_g1, 0, 1, cv2.NORM_MINMAX)
+    cv2.normalize(hist_r1, hist_r1, 0, 1, cv2.NORM_MINMAX)
+    
+    cv2.normalize(hist_b2, hist_b2, 0, 1, cv2.NORM_MINMAX)
+    cv2.normalize(hist_g2, hist_g2, 0, 1, cv2.NORM_MINMAX)
+    cv2.normalize(hist_r2, hist_r2, 0, 1, cv2.NORM_MINMAX)
+
+    # Compute similarity per channel
+    similarity_b = cv2.compareHist(hist_b1, hist_b2, method)
+    similarity_g = cv2.compareHist(hist_g1, hist_g2, method)
+    similarity_r = cv2.compareHist(hist_r1, hist_r2, method)
+
+    # Compute final similarity score (simple average)
+    return (similarity_b + similarity_g + similarity_r) / 3
 
 # --- Superpixel Operations ---
 def remove_border_superpixels(labels, min_border_pixels=5):
@@ -314,10 +352,12 @@ def create_mask(labels, mask_labels):
         mask = np.zeros(union_mask.shape, dtype=np.uint8)
         # Draw the processed contour on the black image
         cv2.drawContours(mask, [processed_contour], 0, 255, -1)
+        '''cv2.imshow("mask:", mask)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()'''
     return mask
 
-def slic_segmentation(image, num_superpixels=250, merge_threshold=20,
-                      slic_type=cv2.ximgproc.SLIC, compactness=5):
+def slic_segmentation(image, num_superpixels=200, merge_threshold=15, slic_type=cv2.ximgproc.SLIC, compactness=2):
     """
     Performs SLIC superpixel segmentation with optional merging based on color similarity.
     (See original docstring for full details.)
@@ -468,7 +508,7 @@ def histogram_based_refinement(image, initial_labels, pred_hist):
         current_histogram = add_histograms(current_histogram, sp_hist_dict[lbl])
 
     # Compute initial constraint violations.
-    old_similarity_measure = check_constraints(pred_hist, current_histogram)
+    old_similarity_measure = compare_histograms(pred_hist, current_histogram)
     #print("Initial Similarity Measure: ", old_similarity_measure)
     #utils.plot_histograms(pred_hist, current_histogram, width=800, height=600)
 
@@ -481,10 +521,11 @@ def histogram_based_refinement(image, initial_labels, pred_hist):
         sp_hist = sp_hist_dict[current_label]
         # Simulate removal by subtracting this superpixel’s histogram.
         temp_hist = remove_histograms(current_histogram, sp_hist)
-        temp_similarity_measure = check_constraints(pred_hist, temp_hist)
-        
+        #utils.plot_histograms(pred_hist, temp_hist, width=800, height=600)
+        temp_similarity_measure = compare_histograms(pred_hist, temp_hist)
+        #print("Current Similarity Measure: ", temp_similarity_measure)
         # Remove superpixel if it improves (reduces) the "overflow" without worsening underflow.
-        if temp_similarity_measure > (old_similarity_measure+0.05):
+        if temp_similarity_measure < (old_similarity_measure-0.005):
             current_histogram = temp_hist
             old_similarity_measure = temp_similarity_measure
         else:
@@ -511,4 +552,7 @@ def segmentation (cropped_image, pred_hist):
     # --- Final Visualization ---
     final_mask = create_mask(slic_labels, final_labels)
 
-    return final_mask, final_histogram
+    mask_histogram = feature_extraction.histogram_extraction(cropped_image, final_mask)
+    final_similarity = compare_histograms(pred_hist, mask_histogram)
+
+    return final_mask, final_histogram, final_similarity
