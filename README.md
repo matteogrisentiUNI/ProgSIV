@@ -78,5 +78,4 @@ Segmentation approximate accuracy: 55-60%
 - Motion estimation may struggle with rapid or non-linear object movements.
 - Segmentation is highly dependent on the accuracy of the predicted bounding box and may thus diverge for higly dynamic and complex scenarios.
 
-# Contact
-GitHub Repository: [ProgSIV](https://github.com/matteogrisenti/ProgSIV)
+
