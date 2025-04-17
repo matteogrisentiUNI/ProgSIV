@@ -76,5 +76,5 @@ Segmentation approximate accuracy: 55-60%
 - YOLO v8_seg detection is pretrained with COCO dateset and may not generalize to all scenarios.
 - Mask refinement and segmentation depend on the quality of initial detection and input video.
 - Motion estimation may struggle with rapid or non-linear object movements.
-- Segmentation is highly dependent on the accuracy of the predicted bounding box and may thus diverge for higly dynamic and complex scenarios.
+- Segmentation is highly dependent on the accuracy of the predicted bounding box and may thus diverge for higly dynamic and complex scenarios .
 
